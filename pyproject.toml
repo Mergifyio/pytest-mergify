@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pytest-mergify"
-version = "0.1.0"
+version = "0"
 description = "Pytest plugin for Mergify"
 authors = ["Julien Danjou <jd@mergify.com>"]
 license = "Apache"
