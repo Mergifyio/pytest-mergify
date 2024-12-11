@@ -24,7 +24,7 @@ semgrep = "^1.99.0"
 yamllint = "^1.35.1"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "poetry-dynamic-versioning"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.plugins.pytest11]
@@ -44,3 +44,9 @@ module = [
   "pytest_opentelemetry.*"
 ]
 ignore_missing_imports = true
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"
+dirty = true
+pattern = "default-unprefixed"
