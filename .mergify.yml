@@ -33,7 +33,7 @@ pull_request_rules:
           - devs
 
 merge_protections:
-  - name: Reviews
+  - name: Approval
     if:
       - author != dependabot[bot]
     success_conditions:
@@ -43,13 +43,6 @@ merge_protections:
     if: []
     success_conditions:
       - and: *CheckRuns
-
-  - name: No review blocker
-    if: []
-    success_conditions:
-      - "#changes-requested-reviews-by = 0"
-      - "#review-threads-unresolved = 0"
-      - "#review-requested = 0"
 
 merge_queue:
   max_parallel_checks: 3
