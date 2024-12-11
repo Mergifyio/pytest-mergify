@@ -26,7 +26,7 @@ pull_request_rules:
           - check-success = test (3.13)
       - "#approved-reviews-by=0"
       - "#changes-requested-reviews-by=0"
-      - "review-requested != @devs"
+      - review-requested != @devs
     actions:
       request_reviews:
         teams:

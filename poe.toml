@@ -14,6 +14,7 @@ sequence = [
   "mypy",
   "codespell",
   "semgrep --config=auto --error --timeout=15",
+  "yamllint .",
 ]
 
 [tool.poe.tasks.setup]

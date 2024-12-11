@@ -1,0 +1,22 @@
+extends: default
+ignore: |
+  .git
+  spectral-lint/node_modules
+  zfixtures
+  .venv
+rules:
+  document-start: disable
+  truthy: disable
+  comments:
+    level: error
+  # Buggy checks:
+  # https://github.com/adrienverge/yamllint/issues/375
+  # https://github.com/adrienverge/yamllint/issues/141
+  # https://github.com/adrienverge/yamllint/issues/384
+  comments-indentation: disable
+  line-length:
+    max: 110
+  quoted-strings:
+    quote-type: double
+    required: only-when-needed
+    allow-quoted-quotes: true
