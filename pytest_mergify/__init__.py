@@ -53,8 +53,6 @@ class PytestMergify:
     def pytest_configure(self, config: _pytest.config.Config) -> None:
         self.token = os.environ.get("MERGIFY_TOKEN")
 
-        print("CONFIGURE", self.token)
-
         exporter: export.SpanExporter
         if os.environ.get("PYTEST_MERGIFY_DEBUG"):
             exporter = export.ConsoleSpanExporter()
