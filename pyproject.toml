@@ -7,7 +7,7 @@ license = "Apache"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.10"
+python = ">=3.10,<4"
 # We set this version explicitly to avoid breaking changes
 pytest-opentelemetry = "1.0.1"
 opentelemetry-exporter-otlp-proto-http = ">=1.25"
