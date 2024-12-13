@@ -13,7 +13,6 @@ sequence = [
   "ruff format --check .",
   "mypy",
   "codespell",
-  "semgrep --config=auto --error --timeout=15",
   "yamllint .",
 ]
 
