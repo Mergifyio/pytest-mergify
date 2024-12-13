@@ -10,7 +10,10 @@ import _pytest.terminal
 from opentelemetry import context
 from opentelemetry.sdk.trace import export
 from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, Span
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http import Compression
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+    OTLPSpanExporter,
+)
 
 
 import pytest_opentelemetry.instrumentation
@@ -63,6 +66,7 @@ class PytestMergify:
             exporter = OTLPSpanExporter(
                 endpoint=f"{url}/v1/ci/traces",
                 headers={"Authorization": f"Bearer {self.token}"},
+                compression=Compression.Gzip,
             )
         else:
             return
