@@ -1,11 +1,12 @@
 import os
 import typing
 
-CIProviderT = typing.Literal["github_actions", "circleci"]
+CIProviderT = typing.Literal["github_actions", "circleci", "pytest_mergify_suite"]
 
 SUPPORTED_CIs: dict[str, CIProviderT] = {
     "GITHUB_ACTIONS": "github_actions",
     "CIRCLECI": "circleci",
+    "_PYTEST_MERGIFY_TEST": "pytest_mergify_suite",
 }
 
 

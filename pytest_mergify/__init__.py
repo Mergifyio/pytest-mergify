@@ -15,9 +15,10 @@ from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter,
 )
+import opentelemetry.sdk.resources
 
 from pytest_mergify import utils
-
+import pytest_mergify.resources.ci as resources_ci
 
 import pytest_opentelemetry.instrumentation
 
@@ -74,7 +75,13 @@ class PytestMergify:
         else:
             return
 
-        tracer_provider = TracerProvider()
+        resource = opentelemetry.sdk.resources.get_aggregated_resources(
+            [
+                resources_ci.CIResourceDetector(),
+            ]
+        )
+
+        tracer_provider = TracerProvider(resource=resource)
 
         tracer_provider.add_span_processor(span_processor)
 
