@@ -3,12 +3,17 @@ import typing
 
 CIProviderT = typing.Literal["github_actions", "circleci"]
 
+SUPPORTED_CIs: dict[str, CIProviderT] = {
+    "GITHUB_ACTIONS": "github_actions",
+    "CIRCLECI": "circleci",
+}
+
 
 def get_ci_provider() -> CIProviderT | None:
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        return "github_actions"
-    if os.getenv("CIRCLECI") == "true":
-        return "circleci"
+    for envvar, name in SUPPORTED_CIs.items():
+        if envvar in os.environ and strtobool(os.environ[envvar]):
+            return name
+
     return None
 
 
