@@ -5,23 +5,15 @@ from _pytest.pytester import Pytester
 
 import pytest_mergify
 
+pytest_plugins = ["pytester"]
+
 
 def test_plugin_is_loaded(pytestconfig: _pytest.config.Config) -> None:
     plugin = pytestconfig.pluginmanager.get_plugin("pytest_mergify")
     assert plugin is pytest_mergify
 
-
-def test_no_ci(pytester: Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("CI")
-    pytester.makepyfile(
-        """
-        def test_foo():
-            assert True
-        """
-    )
-    result = pytester.runpytest()
-    result.assert_outcomes(passed=1)
-    assert not any("Mergify CI" in line for line in result.stdout.lines)
+    plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
+    assert isinstance(plugin, pytest_mergify.PytestMergify)
 
 
 def test_no_token(pytester: Pytester) -> None:

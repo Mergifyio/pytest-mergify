@@ -1,8 +1,7 @@
-import pytest
-
-pytest_plugins = ["pytester"]
+import os
 
 
-@pytest.fixture(autouse=True)
-def set_ci(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CI", "1")
+# Set this before we call any part of our plugin
+def pytest_cmdline_main() -> None:
+    os.environ["CI"] = "1"
+    os.environ["_PYTEST_MERGIFY_TEST"] = "1"
