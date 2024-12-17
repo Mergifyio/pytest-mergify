@@ -69,12 +69,14 @@ class PytestMergify:
             url = config.getoption("--mergify-api-url") or os.environ.get(
                 "MERGIFY_API_URL", "https://api.mergify.com"
             )
-            if self.repo_name is not None:
-                self.exporter = OTLPSpanExporter(
-                    endpoint=f"{url}/v1/{self.repo_name}/ci/traces",
-                    headers={"Authorization": f"Bearer {self.token}"},
-                    compression=Compression.Gzip,
-                )
+            if self.repo_name is None:
+                return
+
+            self.exporter = OTLPSpanExporter(
+                endpoint=f"{url}/v1/{self.repo_name}/ci/traces",
+                headers={"Authorization": f"Bearer {self.token}"},
+                compression=Compression.Gzip,
+            )
             span_processor = export.BatchSpanProcessor(self.exporter)
         else:
             return
