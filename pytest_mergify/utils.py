@@ -1,4 +1,5 @@
 import os
+import re
 import typing
 
 CIProviderT = typing.Literal["github_actions", "circleci", "pytest_mergify_suite"]
@@ -14,6 +15,28 @@ def get_ci_provider() -> CIProviderT | None:
     for envvar, name in SUPPORTED_CIs.items():
         if envvar in os.environ and strtobool(os.environ[envvar]):
             return name
+
+    return None
+
+
+def get_repository_name() -> str | None:
+    provider = get_ci_provider()
+
+    if provider == "github_actions":
+        return os.getenv("GITHUB_REPOSITORY")
+
+    if provider == "circleci":
+        repository_url = os.getenv("CIRCLE_REPOSITORY_URL")
+        if repository_url and (
+            match := re.match(
+                r"(https?://[\w.-]+/)?(?P<full_name>[\w.-]+/[\w.-]+)/?$",
+                repository_url,
+            )
+        ):
+            return match.group("full_name")
+
+    if provider == "pytest_mergify_suite":
+        return "Mergifyio/pytest-mergify"
 
     return None
 

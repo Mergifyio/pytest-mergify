@@ -51,3 +51,9 @@ def test_with_token_gha(pytester: Pytester, monkeypatch: pytest.MonkeyPatch) -> 
             break
     else:
         pytest.fail("No trace id found")
+
+
+def test_repo_name(pytestconfig: _pytest.config.Config) -> None:
+    plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
+    assert plugin is not None
+    assert plugin.repo_name == "Mergifyio/pytest-mergify"

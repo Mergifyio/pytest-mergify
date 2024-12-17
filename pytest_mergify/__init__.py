@@ -43,6 +43,7 @@ class PytestMergify:
     __name__ = "PytestMergify"
 
     exporter: export.SpanExporter
+    repo_name: str | None
 
     def ci_supports_trace_interception(self) -> bool:
         return utils.get_ci_provider() == "github_actions"
@@ -51,6 +52,7 @@ class PytestMergify:
     @pytest.hookimpl(trylast=True)
     def pytest_configure(self, config: _pytest.config.Config) -> None:
         self.token = os.environ.get("MERGIFY_TOKEN")
+        self.repo_name = utils.get_repository_name()
 
         span_processor: opentelemetry.sdk.trace.SpanProcessor
         if os.environ.get("PYTEST_MERGIFY_DEBUG"):
@@ -67,11 +69,12 @@ class PytestMergify:
             url = config.getoption("--mergify-api-url") or os.environ.get(
                 "MERGIFY_API_URL", "https://api.mergify.com"
             )
-            self.exporter = OTLPSpanExporter(
-                endpoint=f"{url}/v1/ci/traces",
-                headers={"Authorization": f"Bearer {self.token}"},
-                compression=Compression.Gzip,
-            )
+            if self.repo_name is not None:
+                self.exporter = OTLPSpanExporter(
+                    endpoint=f"{url}/v1/{self.repo_name}/ci/traces",
+                    headers={"Authorization": f"Bearer {self.token}"},
+                    compression=Compression.Gzip,
+                )
             span_processor = export.BatchSpanProcessor(self.exporter)
         else:
             return
