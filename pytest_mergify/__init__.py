@@ -19,6 +19,7 @@ import opentelemetry.sdk.resources
 
 from pytest_mergify import utils
 import pytest_mergify.resources.ci as resources_ci
+import pytest_mergify.resources.github_actions as resources_gha
 
 import pytest_opentelemetry.instrumentation
 
@@ -75,9 +76,11 @@ class PytestMergify:
         else:
             return
 
+        resources_gha.GitHubActionsResourceDetector().detect()
         resource = opentelemetry.sdk.resources.get_aggregated_resources(
             [
                 resources_ci.CIResourceDetector(),
+                resources_gha.GitHubActionsResourceDetector(),
             ]
         )
 
