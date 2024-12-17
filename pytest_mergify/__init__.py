@@ -73,7 +73,7 @@ class PytestMergify:
                 return
 
             self.exporter = OTLPSpanExporter(
-                endpoint=f"{url}/v1/{self.repo_name}/ci/traces",
+                endpoint=f"{url}/v1/repos/{self.repo_name}/ci/traces",
                 headers={"Authorization": f"Bearer {self.token}"},
                 compression=Compression.Gzip,
             )
