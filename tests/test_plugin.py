@@ -34,8 +34,6 @@ def test_no_token(pytester: Pytester) -> None:
 def test_with_token_gha(pytester: Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERGIFY_TOKEN", "foobar")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setenv("MERGIFY_API_URL", "https://localhost/v1/ci/traces")
-
     pytester.makepyfile(
         """
         def test_foo():
