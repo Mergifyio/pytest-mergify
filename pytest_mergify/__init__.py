@@ -53,6 +53,7 @@ class PytestMergify:
     def pytest_configure(self, config: _pytest.config.Config) -> None:
         self.token = os.environ.get("MERGIFY_TOKEN")
         self.repo_name = utils.get_repository_name()
+        self.interceptor = None
 
         span_processor: opentelemetry.sdk.trace.SpanProcessor
         if os.environ.get("PYTEST_MERGIFY_DEBUG"):
@@ -113,15 +114,18 @@ class PytestMergify:
             )
             return
 
-        if self.interceptor.trace_id is None:
-            terminalreporter.write_line(
-                "No trace id detected, this test run will not be attached to the CI job",
-                yellow=True,
-            )
-        elif utils.get_ci_provider() == "github_actions":
-            terminalreporter.write_line(
-                f"::notice title=Mergify CI::MERGIFY_TRACE_ID={self.interceptor.trace_id}",
-            )
+        if self.interceptor is None:
+            terminalreporter.write_line("Nothing to do")
+        else:
+            if self.interceptor.trace_id is None:
+                terminalreporter.write_line(
+                    "No trace id detected, this test run will not be attached to the CI job",
+                    yellow=True,
+                )
+            elif utils.get_ci_provider() == "github_actions":
+                terminalreporter.write_line(
+                    f"::notice title=Mergify CI::MERGIFY_TRACE_ID={self.interceptor.trace_id}",
+                )
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:

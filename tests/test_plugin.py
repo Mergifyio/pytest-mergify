@@ -53,6 +53,21 @@ def test_with_token_gha(pytester: Pytester, monkeypatch: pytest.MonkeyPatch) -> 
         pytest.fail("No trace id found")
 
 
+def test_with_token_no_ci_provider(
+    pytester: Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MERGIFY_TOKEN", "foobar")
+    pytester.makepyfile(
+        """
+        def test_foo():
+            assert True
+        """
+    )
+    result = pytester.runpytest_subprocess()
+    result.assert_outcomes(passed=1)
+    assert "Nothing to do" in result.stdout.lines
+
+
 def test_repo_name(pytestconfig: _pytest.config.Config) -> None:
     plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
     assert plugin is not None
