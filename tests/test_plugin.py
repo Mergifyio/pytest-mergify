@@ -84,3 +84,33 @@ def test_with_token_no_ci_provider(
     result = pytester.runpytest_subprocess()
     result.assert_outcomes(passed=1)
     assert "Nothing to do" in result.stdout.lines
+
+
+def test_errors_logs(
+    pytester: _pytest.pytester.Pytester,
+    reconfigure_mergify_tracer: conftest.ReconfigureT,
+) -> None:
+    # This will try to upload traces, but we don't have a real exporter so it will log errors.
+    reconfigure_mergify_tracer(
+        {
+            "MERGIFY_TOKEN": "true",
+            "CI": "1",
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY": "foo/bar",
+        }
+    )
+    pytester.makepyfile(
+        """
+        import pytest
+
+        from pytest_mergify import utils
+
+        def test_span(pytestconfig):
+            plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
+            assert plugin is not None
+            assert plugin.mergify_tracer.exporter is not None
+        """
+    )
+    result = pytester.runpytest_subprocess()
+    result.assert_outcomes(passed=1)
+    assert "There are been some errors reported by the tracer:" in result.stdout.lines

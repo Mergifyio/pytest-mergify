@@ -1,4 +1,5 @@
 import dataclasses
+import logging
 import os
 
 import opentelemetry.sdk.resources
@@ -32,6 +33,17 @@ class InterceptingSpanProcessor(SpanProcessor):
             self.trace_id = span.context.trace_id
 
 
+class ListLogHandler(logging.Handler):
+    """Custom logging handler to capture log messages into a list."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.log_list: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.log_list.append(self.format(record))
+
+
 @dataclasses.dataclass
 class MergifyTracer:
     token: str | None = dataclasses.field(
@@ -51,9 +63,24 @@ class MergifyTracer:
     tracer_provider: opentelemetry.sdk.trace.TracerProvider | None = dataclasses.field(
         init=False, default=None
     )
+    log_handler: ListLogHandler = dataclasses.field(
+        init=False, default_factory=ListLogHandler
+    )
 
     def __post_init__(self) -> None:
         span_processor: SpanProcessor
+
+        # Set up the logger
+        self.log_handler.setLevel(logging.ERROR)  # Capture ERROR logs by default
+        self.log_handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        )
+
+        logger = logging.getLogger("opentelemetry")
+        # FIXME: we should remove the handler when this tracer is not used
+        # (e.g., reconfigure() is called) Since reconfigure() is unlikely to be
+        # called outside our testing things, it's not a big deal to leak it.
+        logger.addHandler(self.log_handler)
 
         if os.environ.get("PYTEST_MERGIFY_DEBUG"):
             self.exporter = export.ConsoleSpanExporter()

@@ -33,6 +33,19 @@ class PytestMergify:
     ) -> None:
         terminalreporter.section("Mergify CI")
 
+        # Make sure we shutdown and flush traces before existing: this makes
+        # sure that we capture the possible error logs, otherwise they are
+        # emitted on exit (atexit()).
+        if self.mergify_tracer.tracer_provider is not None:
+            self.mergify_tracer.tracer_provider.shutdown()  # type: ignore[no-untyped-call]
+
+        if self.mergify_tracer.log_handler.log_list:
+            terminalreporter.write_line(
+                "There are been some errors reported by the tracer:", red=True
+            )
+            for line in self.mergify_tracer.log_handler.log_list:
+                terminalreporter.write_line(line)
+
         if self.mergify_tracer.token is None:
             terminalreporter.write_line(
                 "No token configured for Mergify; test results will not be uploaded",
