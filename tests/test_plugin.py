@@ -83,7 +83,10 @@ def test_with_token_no_ci_provider(
     )
     result = pytester.runpytest_subprocess()
     result.assert_outcomes(passed=1)
-    assert "Nothing to do" in result.stdout.lines
+    assert (
+        "Unable to determine repository name; test results will not be uploaded"
+        in result.stdout.lines
+    )
 
 
 def test_errors_logs(

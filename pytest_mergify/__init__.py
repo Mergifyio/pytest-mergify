@@ -53,6 +53,13 @@ class PytestMergify:
             )
             return
 
+        if self.mergify_tracer.repo_name is None:
+            terminalreporter.write_line(
+                "Unable to determine repository name; test results will not be uploaded",
+                red=True,
+            )
+            return
+
         if self.mergify_tracer.interceptor is None:
             terminalreporter.write_line("Nothing to do")
         else:
