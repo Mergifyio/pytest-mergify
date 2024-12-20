@@ -37,14 +37,20 @@ class PytestMergify:
         # sure that we capture the possible error logs, otherwise they are
         # emitted on exit (atexit()).
         if self.mergify_tracer.tracer_provider is not None:
-            self.mergify_tracer.tracer_provider.shutdown()  # type: ignore[no-untyped-call]
-
-        if self.mergify_tracer.log_handler.log_list:
-            terminalreporter.write_line(
-                "There are been some errors reported by the tracer:", red=True
-            )
-            for line in self.mergify_tracer.log_handler.log_list:
-                terminalreporter.write_line(line)
+            try:
+                self.mergify_tracer.tracer_provider.force_flush()
+            except Exception as e:
+                terminalreporter.write_line(
+                    f"Error while exporting traces: {e}",
+                    red=True,
+                )
+            try:
+                self.mergify_tracer.tracer_provider.shutdown()  # type: ignore[no-untyped-call]
+            except Exception as e:
+                terminalreporter.write_line(
+                    f"Error while shutting down the tracer: {e}",
+                    red=True,
+                )
 
         if self.mergify_tracer.token is None:
             terminalreporter.write_line(

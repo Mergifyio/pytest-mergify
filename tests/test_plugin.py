@@ -116,4 +116,9 @@ def test_errors_logs(
     )
     result = pytester.runpytest_subprocess()
     result.assert_outcomes(passed=1)
-    assert "There are been some errors reported by the tracer:" in result.stdout.lines
+    assert any(
+        line.startswith(
+            "Error while exporting traces: HTTPConnectionPool(host='localhost', port=9999): Max retries exceeded with url"
+        )
+        for line in result.stdout.lines
+    )

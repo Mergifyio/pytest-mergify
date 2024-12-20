@@ -1,11 +1,10 @@
 import dataclasses
-import logging
 import os
 
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
 from opentelemetry import context
-from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, Span
+from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, Span, ReadableSpan
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter,
@@ -33,15 +32,21 @@ class InterceptingSpanProcessor(SpanProcessor):
             self.trace_id = span.context.trace_id
 
 
-class ListLogHandler(logging.Handler):
-    """Custom logging handler to capture log messages into a list."""
+class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
+    def __init__(self, exporter: export.SpanExporter) -> None:
+        super().__init__(exporter)
+        self.queue: list[ReadableSpan] = []
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.log_list: list[str] = []
+    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+        self.span_exporter.export(self.queue)
+        self.queue.clear()
+        return True
 
-    def emit(self, record: logging.LogRecord) -> None:
-        self.log_list.append(self.format(record))
+    def on_end(self, span: ReadableSpan) -> None:
+        if not span.context.trace_flags.sampled:
+            return
+
+        self.queue.append(span)
 
 
 @dataclasses.dataclass
@@ -63,24 +68,9 @@ class MergifyTracer:
     tracer_provider: opentelemetry.sdk.trace.TracerProvider | None = dataclasses.field(
         init=False, default=None
     )
-    log_handler: ListLogHandler = dataclasses.field(
-        init=False, default_factory=ListLogHandler
-    )
 
     def __post_init__(self) -> None:
         span_processor: SpanProcessor
-
-        # Set up the logger
-        self.log_handler.setLevel(logging.ERROR)  # Capture ERROR logs by default
-        self.log_handler.setFormatter(
-            logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-        )
-
-        logger = logging.getLogger("opentelemetry")
-        # FIXME: we should remove the handler when this tracer is not used
-        # (e.g., reconfigure() is called) Since reconfigure() is unlikely to be
-        # called outside our testing things, it's not a big deal to leak it.
-        logger.addHandler(self.log_handler)
 
         if os.environ.get("PYTEST_MERGIFY_DEBUG"):
             self.exporter = export.ConsoleSpanExporter()
@@ -101,7 +91,7 @@ class MergifyTracer:
                 headers={"Authorization": f"Bearer {self.token}"},
                 compression=Compression.Gzip,
             )
-            span_processor = export.BatchSpanProcessor(self.exporter)
+            span_processor = SynchronousBatchSpanProcessor(self.exporter)
         else:
             return
 
