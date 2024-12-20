@@ -5,8 +5,6 @@ from _pytest.pytester import Pytester
 
 import pytest_mergify
 
-from tests import conftest
-
 
 def test_plugin_is_loaded(pytestconfig: _pytest.config.Config) -> None:
     plugin = pytestconfig.pluginmanager.get_plugin("pytest_mergify")
@@ -32,16 +30,13 @@ def test_no_token(pytester: Pytester) -> None:
 
 
 def test_with_token_gha(
-    pytester: Pytester, reconfigure_mergify_tracer: conftest.ReconfigureT
+    pytester: Pytester,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reconfigure_mergify_tracer(
-        {
-            "CI": "1",
-            "GITHUB_REPOSITORY": "Mergifyio/pytest-mergify",
-            "MERGIFY_TOKEN": "foobar",
-            "GITHUB_ACTIONS": "true",
-        },
-    )
+    monkeypatch.setenv("CI", "1")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
+    monkeypatch.setenv("MERGIFY_TOKEN", "foobar")
     pytester.makepyfile(
         """
         def test_foo():
@@ -60,21 +55,25 @@ def test_with_token_gha(
 
 
 def test_repo_name_github_actions(
-    pytestconfig: _pytest.config.Config,
-    reconfigure_mergify_tracer_gha: None,
+    pytester: Pytester,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
-    assert plugin is not None
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
+    plugin = pytest_mergify.PytestMergify()
+    pytester.makepyfile("")
+    pytester.runpytest_inprocess(plugins=[plugin])
     assert plugin.mergify_tracer.repo_name == "Mergifyio/pytest-mergify"
 
 
 def test_with_token_no_ci_provider(
     pytester: Pytester,
-    reconfigure_mergify_tracer: conftest.ReconfigureT,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    reconfigure_mergify_tracer(
-        {"MERGIFY_TOKEN": "x", "CI": "1", "GITHUB_ACTIONS": "false"}
-    )
+    monkeypatch.setenv("MERGIFY_TOKEN", "x")
+    monkeypatch.setenv("CI", "1")
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
     pytester.makepyfile(
         """
         def test_foo():
@@ -91,27 +90,17 @@ def test_with_token_no_ci_provider(
 
 def test_errors_logs(
     pytester: _pytest.pytester.Pytester,
-    reconfigure_mergify_tracer: conftest.ReconfigureT,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # This will try to upload traces, but we don't have a real exporter so it will log errors.
-    reconfigure_mergify_tracer(
-        {
-            "MERGIFY_TOKEN": "true",
-            "CI": "1",
-            "GITHUB_ACTIONS": "true",
-            "GITHUB_REPOSITORY": "foo/bar",
-        }
-    )
+    monkeypatch.setenv("MERGIFY_TOKEN", "x")
+    monkeypatch.setenv("CI", "1")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "foo/bar")
     pytester.makepyfile(
         """
-        import pytest
-
-        from pytest_mergify import utils
-
-        def test_span(pytestconfig):
-            plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
-            assert plugin is not None
-            assert plugin.mergify_tracer.exporter is not None
+        def test_pass():
+            pass
         """
     )
     result = pytester.runpytest_subprocess()
