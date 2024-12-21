@@ -1,46 +1,49 @@
-import collections.abc
 import typing
 
 import pytest
+import _pytest.pytester
+from opentelemetry.sdk import trace
 
-import _pytest.config
-
-from pytest_mergify import tracer
+import pytest_mergify
 
 pytest_plugins = ["pytester"]
 
 
-ReconfigureT = typing.Callable[[dict[str, str]], None]
-
-
-@pytest.fixture
-def reconfigure_mergify_tracer(
-    pytestconfig: _pytest.config.Config,
+@pytest.fixture(autouse=True)
+def set_api_url(
     monkeypatch: pytest.MonkeyPatch,
-) -> collections.abc.Generator[ReconfigureT, None, None]:
+) -> None:
     # Always override API
     monkeypatch.setenv("MERGIFY_API_URL", "http://localhost:9999")
 
-    plugin = pytestconfig.pluginmanager.get_plugin("PytestMergify")
-    assert plugin is not None
-    old_tracer: tracer.MergifyTracer = plugin.mergify_tracer
 
-    def _reconfigure(env: dict[str, str]) -> None:
-        # Set environment variables
-        for key, value in env.items():
-            monkeypatch.setenv(key, value)
-        plugin.reconfigure()
+PytesterWithSpanReturnT = tuple[_pytest.pytester.RunResult, list[trace.ReadableSpan]]
 
-    yield _reconfigure
-    if plugin.mergify_tracer.tracer_provider is not None:
-        plugin.mergify_tracer.tracer_provider.shutdown()
-    plugin.mergify_tracer = old_tracer
+
+class PytesterWithSpanT(typing.Protocol):
+    def __call__(self, code: str = ..., /) -> PytesterWithSpanReturnT: ...
+
+
+_DEFAULT_PYTESTER_CODE = "def test_pass(): pass"
 
 
 @pytest.fixture
-def reconfigure_mergify_tracer_gha(
-    reconfigure_mergify_tracer: ReconfigureT,
-) -> None:
-    reconfigure_mergify_tracer(
-        {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "Mergifyio/pytest-mergify"}
-    )
+def pytester_with_spans(
+    pytester: _pytest.pytester.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> PytesterWithSpanT:
+    def _run(
+        code: str = _DEFAULT_PYTESTER_CODE,
+    ) -> PytesterWithSpanReturnT:
+        monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
+        plugin = pytest_mergify.PytestMergify()
+        pytester.makepyfile(code)
+        result = pytester.runpytest_inprocess(plugins=[plugin])
+        if code is _DEFAULT_PYTESTER_CODE:
+            result.assert_outcomes(passed=1)
+        assert plugin.mergify_tracer.exporter is not None
+        spans: list[trace.ReadableSpan] = (
+            plugin.mergify_tracer.exporter.get_finished_spans()  # type: ignore[attr-defined]
+        )
+        return result, spans
+
+    return _run

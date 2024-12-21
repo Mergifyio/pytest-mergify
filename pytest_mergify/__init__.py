@@ -1,5 +1,3 @@
-import typing
-
 import pytest
 import _pytest.main
 import _pytest.config
@@ -12,21 +10,16 @@ from pytest_mergify.tracer import MergifyTracer
 
 
 class PytestMergify:
-    __name__ = "PytestMergify"
-
     mergify_tracer: MergifyTracer
 
     # Do this after pytest-opentelemetry has setup things
     @pytest.hookimpl(trylast=True)
     def pytest_configure(self, config: _pytest.config.Config) -> None:
+        kwargs = {}
         api_url = config.getoption("--mergify-api-url")
-        if api_url is None:
-            self.reconfigure()
-        else:
-            self.reconfigure(api_url=api_url)
-
-    def reconfigure(self, *args: typing.Any, **kwargs: typing.Any) -> None:
-        self.mergify_tracer = MergifyTracer(*args, **kwargs)
+        if api_url is not None:
+            kwargs["api_url"] = api_url
+        self.mergify_tracer = MergifyTracer(**kwargs)
 
     def pytest_terminal_summary(
         self, terminalreporter: _pytest.terminal.TerminalReporter
@@ -92,4 +85,4 @@ def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
 
 
 def pytest_configure(config: _pytest.config.Config) -> None:
-    config.pluginmanager.register(PytestMergify())
+    config.pluginmanager.register(PytestMergify(), name="PytestMergify")
