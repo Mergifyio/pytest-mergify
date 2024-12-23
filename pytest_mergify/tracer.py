@@ -12,7 +12,6 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
 
 from pytest_mergify import utils
 
-import pytest_opentelemetry.instrumentation
 import pytest_mergify.resources.ci as resources_ci
 import pytest_mergify.resources.github_actions as resources_gha
 import pytest_mergify.resources.pytest as resources_pytest
@@ -27,9 +26,7 @@ class InterceptingSpanProcessor(SpanProcessor):
     def on_start(
         self, span: Span, parent_context: context.Context | None = None
     ) -> None:
-        if span.attributes is not None and any(
-            "pytest" in attr for attr in span.attributes
-        ):
+        if span.attributes is not None and "test.type" in span.attributes:
             self.trace_id = span.context.trace_id
 
 
@@ -114,9 +111,6 @@ class MergifyTracer:
             self.tracer_provider.add_span_processor(self.interceptor)
 
         self.tracer = self.tracer_provider.get_tracer("pytest-mergify")
-
-        # Replace tracer of pytest-opentelemetry
-        pytest_opentelemetry.instrumentation.tracer = self.tracer
 
     def ci_supports_trace_interception(self) -> bool:
         return utils.get_ci_provider() == "github_actions"
