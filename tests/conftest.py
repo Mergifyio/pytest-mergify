@@ -34,6 +34,7 @@ def pytester_with_spans(
     def _run(
         code: str = _DEFAULT_PYTESTER_CODE,
     ) -> PytesterWithSpanReturnT:
+        monkeypatch.delenv("PYTEST_MERGIFY_DEBUG", raising=False)
         monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
         plugin = pytest_mergify.PytestMergify()
         pytester.makepyfile(code)

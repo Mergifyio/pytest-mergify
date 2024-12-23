@@ -93,6 +93,7 @@ def test_errors_logs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # This will try to upload traces, but we don't have a real exporter so it will log errors.
+    monkeypatch.delenv("PYTEST_MERGIFY_DEBUG", raising=False)
     monkeypatch.setenv("MERGIFY_TOKEN", "x")
     monkeypatch.setenv("CI", "1")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
