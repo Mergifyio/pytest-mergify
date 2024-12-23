@@ -3,7 +3,7 @@ name = "pytest-mergify"
 version = "0"
 description = "Pytest plugin for Mergify"
 authors = ["Julien Danjou <jd@mergify.com>"]
-license = "Apache"
+license = "GPL-3.0-only"
 readme = "README.md"
 
 [tool.poetry.dependencies]
