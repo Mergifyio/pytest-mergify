@@ -17,7 +17,9 @@ def set_api_url(
     monkeypatch.setenv("MERGIFY_API_URL", "http://localhost:9999")
 
 
-PytesterWithSpanReturnT = tuple[_pytest.pytester.RunResult, list[trace.ReadableSpan]]
+PytesterWithSpanReturnT = tuple[
+    _pytest.pytester.RunResult, dict[str, trace.ReadableSpan]
+]
 
 
 class PytesterWithSpanT(typing.Protocol):
@@ -44,6 +46,9 @@ def pytester_with_spans(
         spans: list[trace.ReadableSpan] = (
             plugin.mergify_tracer.exporter.get_finished_spans()  # type: ignore[attr-defined]
         )
-        return result, spans
+        spans_as_dict = {s.name: s for s in spans}
+        # Make sure we don't lose spans in the process
+        assert len(spans_as_dict) == len(spans)
+        return result, spans_as_dict
 
     return _run

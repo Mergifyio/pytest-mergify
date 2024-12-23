@@ -15,7 +15,7 @@ def test_span_resources_attributes_ci(
     result, spans = pytester_with_spans()
     assert all(
         span.resource.attributes["cicd.provider.name"] == utils.get_ci_provider()
-        for span in spans
+        for span in spans.values()
     )
 
 
@@ -28,7 +28,7 @@ def test_span_resources_attributes_pytest(
             r"\d\.",
             typing.cast(str, span.resource.attributes["test.framework.version"]),
         )
-        for span in spans
+        for span in spans.values()
     )
 
 
@@ -40,7 +40,7 @@ def test_span_github_actions(
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
     result, spans = pytester_with_spans()
-    assert (
-        spans[0].resource.attributes["vcs.repository.name"]
-        == "Mergifyio/pytest-mergify"
+    assert all(
+        span.resource.attributes["vcs.repository.name"] == "Mergifyio/pytest-mergify"
+        for span in spans.values()
     )
