@@ -124,58 +124,24 @@ class PytestMergify:
             yield
 
     @pytest.hookimpl(hookwrapper=True)
-    def pytest_runtest_setup(
-        self, item: _pytest.nodes.Item
-    ) -> typing.Generator[None, None, None]:
-        if self.tracer:
-            with self.tracer.start_as_current_span(
-                f"{item.nodeid}::setup",
-                attributes=self._attributes_from_item(item)
-                | {"test.type": "test.setup"},
-            ):
-                yield
-        else:
-            yield
-
-    @pytest.hookimpl(hookwrapper=True)
-    def pytest_runtest_call(
-        self, item: _pytest.nodes.Item
-    ) -> typing.Generator[None, None, None]:
-        if self.tracer:
-            with self.tracer.start_as_current_span(
-                name=f"{item.nodeid}::call",
-                attributes=self._attributes_from_item(item)
-                | {"test.type": "test.call"},
-            ):
-                yield
-        else:
-            yield
-
-    @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_teardown(
         self, item: _pytest.nodes.Item
     ) -> typing.Generator[None, None, None]:
         if self.tracer:
-            with self.tracer.start_as_current_span(
-                name=f"{item.nodeid}::teardown",
-                attributes=self._attributes_from_item(item)
-                | {"test.type": "test.teardown"},
-            ):
-                # Since there is no pytest_fixture_teardown hook, we have to be a
-                # little clever to capture the spans for each fixture's teardown.
-                # The pytest_fixture_post_finalizer hook is called at the end of a
-                # fixture's teardown, but we don't know when the fixture actually
-                # began tearing down.
-                #
-                # Instead start a span here for the first fixture to be torn down,
-                # but give it a temporary name, since we don't know which fixture it
-                # will be. Then, in pytest_fixture_post_finalizer, when we do know
-                # which fixture is being torn down, update the name and attributes
-                # to the actual fixture, end the span, and create the span for the
-                # next fixture in line to be torn down.
-                self._fixture_teardown_span = self.tracer.start_span("fixture teardown")
-                yield
-
+            # Since there is no pytest_fixture_teardown hook, we have to be a
+            # little clever to capture the spans for each fixture's teardown.
+            # The pytest_fixture_post_finalizer hook is called at the end of a
+            # fixture's teardown, but we don't know when the fixture actually
+            # began tearing down.
+            #
+            # Instead start a span here for the first fixture to be torn down,
+            # but give it a temporary name, since we don't know which fixture it
+            # will be. Then, in pytest_fixture_post_finalizer, when we do know
+            # which fixture is being torn down, update the name and attributes
+            # to the actual fixture, end the span, and create the span for the
+            # next fixture in line to be torn down.
+            self._fixture_teardown_span = self.tracer.start_span("fixture teardown")
+            yield
             # The last call to pytest_fixture_post_finalizer will create
             # a span that is unneeded, so delete it.
             del self._fixture_teardown_span

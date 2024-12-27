@@ -15,9 +15,6 @@ def test_span(
     assert set(spans.keys()) == {
         "pytest session start",
         "test_span.py::test_pass",
-        "test_span.py::test_pass::setup",
-        "test_span.py::test_pass::call",
-        "test_span.py::test_pass::teardown",
     }
 
 
@@ -45,15 +42,6 @@ def test_test(
     result, spans = pytester_with_spans()
     session_span = spans["pytest session start"]
 
-    expected_spans = (
-        "test_test.py::test_pass",
-        "test_test.py::test_pass::setup",
-        "test_test.py::test_pass::call",
-        "test_test.py::test_pass::teardown",
-    )
-    for name in expected_spans:
-        assert name in spans
-
     assert spans["test_test.py::test_pass"].attributes == {
         "test.type": "test",
         "code.function": "test_pass",
@@ -71,56 +59,12 @@ def test_test(
         spans["test_test.py::test_pass"].parent.span_id == session_span.context.span_id
     )
 
-    assert spans["test_test.py::test_pass::setup"].attributes == {
-        "test.type": "test.setup",
-        "code.function": "test_pass",
-        "code.lineno": 0,
-        "code.filepath": "test_test.py",
-        "test.case.name": "test_test.py::test_pass",
-    }
-    assert (
-        spans["test_test.py::test_pass::setup"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["test_test.py::test_pass::call"].attributes == {
-        "test.type": "test.call",
-        "code.function": "test_pass",
-        "code.lineno": 0,
-        "code.filepath": "test_test.py",
-        "test.case.name": "test_test.py::test_pass",
-    }
-    assert (
-        spans["test_test.py::test_pass::call"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["test_test.py::test_pass::teardown"].attributes == {
-        "test.type": "test.teardown",
-        "code.function": "test_pass",
-        "code.lineno": 0,
-        "code.filepath": "test_test.py",
-        "test.case.name": "test_test.py::test_pass",
-    }
-    assert (
-        spans["test_test.py::test_pass::teardown"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
 
 def test_test_failure(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans("def test_error(): assert False, 'foobar'")
     session_span = spans["pytest session start"]
-
-    expected_spans = (
-        "test_test_failure.py::test_error",
-        "test_test_failure.py::test_error::setup",
-        "test_test_failure.py::test_error::call",
-    )
-    for name in expected_spans:
-        assert name in spans
 
     assert spans["test_test_failure.py::test_error"].attributes == {
         "test.type": "test",
@@ -149,42 +93,6 @@ test_test_failure.py:1: AssertionError""",
     assert (
         spans["test_test_failure.py::test_error"].parent.span_id
         == session_span.context.span_id
-    )
-
-    assert spans["test_test_failure.py::test_error::setup"].attributes == {
-        "test.type": "test.setup",
-        "code.function": "test_error",
-        "code.lineno": 0,
-        "code.filepath": "test_test_failure.py",
-        "test.case.name": "test_test_failure.py::test_error",
-    }
-    assert (
-        spans["test_test_failure.py::test_error::setup"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["test_test_failure.py::test_error::call"].attributes == {
-        "test.type": "test.call",
-        "code.function": "test_error",
-        "code.lineno": 0,
-        "code.filepath": "test_test_failure.py",
-        "test.case.name": "test_test_failure.py::test_error",
-    }
-    assert (
-        spans["test_test_failure.py::test_error::call"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["test_test_failure.py::test_error::teardown"].attributes == {
-        "test.type": "test.teardown",
-        "code.function": "test_error",
-        "code.lineno": 0,
-        "code.filepath": "test_test_failure.py",
-        "test.case.name": "test_test_failure.py::test_error",
-    }
-    assert (
-        spans["test_test_failure.py::test_error::teardown"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
     )
 
 
