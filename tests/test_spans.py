@@ -43,7 +43,7 @@ def test_test(
     session_span = spans["pytest session start"]
 
     assert spans["test_test.py::test_pass"].attributes == {
-        "test.type": "test",
+        "test.type": "case",
         "code.function": "test_pass",
         "code.lineno": 0,
         "code.filepath": "test_test.py",
@@ -67,7 +67,7 @@ def test_test_failure(
     session_span = spans["pytest session start"]
 
     assert spans["test_test_failure.py::test_error"].attributes == {
-        "test.type": "test",
+        "test.type": "case",
         "code.function": "test_error",
         "code.lineno": 0,
         "code.filepath": "test_test_failure.py",
@@ -192,7 +192,7 @@ def test_fixture_failure(
     )
 
     assert spans["test_fixture_failure.py::test_pass"].attributes == {
-        "test.type": "test",
+        "test.type": "case",
         "code.function": "test_pass",
         "code.lineno": 3,
         "code.filepath": "test_fixture_failure.py",
