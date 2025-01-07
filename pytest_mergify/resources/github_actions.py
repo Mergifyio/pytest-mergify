@@ -30,7 +30,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
 
         if "GITHUB_SERVER_URL" in os.environ and "GITHUB_REPOSITORY" in os.environ:
             attributes[vcs_attributes.VCS_REPOSITORY_URL_FULL] = (
-                os.environ["GITHUB_SERVER_URL"] + os.environ["GITHUB_REPOSITORY"]
+                os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"]
             )
 
         for attribute_name, envvar in self.OPENTELEMETRY_GHA_MAPPING.items():
