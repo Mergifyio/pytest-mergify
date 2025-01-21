@@ -16,7 +16,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
     @staticmethod
     def get_github_actions_head_sha() -> str | None:
         if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
-            # NOTE(leo): we want the head sha of pull request
+            # NOTE: we want the head sha of the pull request
             event_raw_path = os.getenv("GITHUB_EVENT_PATH")
             if event_raw_path and (
                 (event_path := pathlib.Path(event_raw_path)).is_file()
