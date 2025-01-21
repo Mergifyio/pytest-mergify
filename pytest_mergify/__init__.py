@@ -279,8 +279,7 @@ def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
     group.addoption(
         "--mergify-api-url",
         help=(
-            "URL of the Mergify API "
-            "(or set via MERGIFY_API_URL environment variable)",
+            "URL of the Mergify API (or set via MERGIFY_API_URL environment variable)",
         ),
     )
 
