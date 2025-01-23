@@ -48,6 +48,7 @@ def test_test(
         "code.lineno": 0,
         "code.filepath": "test_test.py",
         "test.case.name": "test_test.py::test_pass",
+        "test.case.result.status": "passed",
     }
     assert (
         spans["test_test.py::test_pass"].status.status_code
@@ -67,6 +68,7 @@ def test_test_failure(
     session_span = spans["pytest session start"]
 
     assert spans["test_test_failure.py::test_error"].attributes == {
+        "test.case.result.status": "failed",
         "test.type": "case",
         "code.function": "test_error",
         "code.lineno": 0,
@@ -92,6 +94,36 @@ test_test_failure.py:1: AssertionError""",
     assert spans["test_test_failure.py::test_error"].parent is not None
     assert (
         spans["test_test_failure.py::test_error"].parent.span_id
+        == session_span.context.span_id
+    )
+
+
+def test_test_skipped(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    result, spans = pytester_with_spans("""
+import pytest
+def test_skipped():
+    pytest.skip('not needed')
+""")
+    session_span = spans["pytest session start"]
+
+    assert spans["test_test_skipped.py::test_skipped"].attributes == {
+        "test.case.result.status": "skipped",
+        "test.type": "case",
+        "code.function": "test_skipped",
+        "code.lineno": 1,
+        "code.filepath": "test_test_skipped.py",
+        "test.case.name": "test_test_skipped.py::test_skipped",
+    }
+    assert (
+        spans["test_test_skipped.py::test_skipped"].status.status_code
+        == opentelemetry.trace.StatusCode.OK
+    )
+    assert session_span.context is not None
+    assert spans["test_test_skipped.py::test_skipped"].parent is not None
+    assert (
+        spans["test_test_skipped.py::test_skipped"].parent.span_id
         == session_span.context.span_id
     )
 

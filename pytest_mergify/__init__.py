@@ -271,7 +271,14 @@ class PytestMergify:
             else opentelemetry.trace.StatusCode.OK
         )
         self.has_error |= has_error
-        opentelemetry.trace.get_current_span().set_status(status_code)
+
+        test_span = opentelemetry.trace.get_current_span()
+        test_span.set_status(status_code)
+        test_span.set_attributes(
+            {
+                "test.case.result.status": report.outcome,
+            }
+        )
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
