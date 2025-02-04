@@ -63,18 +63,10 @@ class PytestMergify:
             )
             return
 
-        if self.mergify_tracer.interceptor is None:
-            terminalreporter.write_line("Nothing to do")
-        else:
-            if self.mergify_tracer.interceptor.trace_id is None:
-                terminalreporter.write_line(
-                    "No trace id detected, this test run will not be attached to the CI job",
-                    yellow=True,
-                )
-            elif utils.get_ci_provider() == "github_actions":
-                terminalreporter.write_line(
-                    f"::notice title=Mergify CI::MERGIFY_TRACE_ID={self.mergify_tracer.interceptor.trace_id}",
-                )
+        if utils.get_ci_provider() == "github_actions":
+            terminalreporter.write_line(
+                f"::notice title=Mergify CI::MERGIFY_TEST_ROOT_SPAN_ID={self.session_span.get_span_context().span_id}",
+            )
 
     @property
     def tracer(self) -> opentelemetry.trace.Tracer | None:
