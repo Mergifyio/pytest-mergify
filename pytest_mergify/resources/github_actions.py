@@ -28,6 +28,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
     OPENTELEMETRY_GHA_MAPPING = {
         cicd_attributes.CICD_PIPELINE_NAME: "GITHUB_JOB",
         cicd_attributes.CICD_PIPELINE_RUN_ID: "GITHUB_RUN_ID",
+        "cicd.pipeline.run.attempt": "GITHUB_RUN_ATTEMPT",
         cicd_attributes.CICD_PIPELINE_TASK_NAME: "GITHUB_ACTION",
         vcs_attributes.VCS_REF_HEAD_NAME: "GITHUB_REF_NAME",
         vcs_attributes.VCS_REF_HEAD_TYPE: "GITHUB_REF_TYPE",
