@@ -26,15 +26,15 @@ class GitHubActionsResourceDetector(ResourceDetector):
         return os.getenv("GITHUB_SHA")
 
     OPENTELEMETRY_GHA_MAPPING = {
-        cicd_attributes.CICD_PIPELINE_NAME: "GITHUB_JOB",
-        cicd_attributes.CICD_PIPELINE_RUN_ID: "GITHUB_RUN_ID",
-        "cicd.pipeline.run.attempt": "GITHUB_RUN_ATTEMPT",
-        cicd_attributes.CICD_PIPELINE_TASK_NAME: "GITHUB_ACTION",
-        vcs_attributes.VCS_REF_HEAD_NAME: "GITHUB_REF_NAME",
-        vcs_attributes.VCS_REF_HEAD_TYPE: "GITHUB_REF_TYPE",
-        vcs_attributes.VCS_REF_BASE_NAME: "GITHUB_BASE_REF",
-        "vcs.repository.name": "GITHUB_REPOSITORY",
-        "vcs.repository.id": "GITHUB_REPOSITORY_ID",
+        cicd_attributes.CICD_PIPELINE_NAME: (str, "GITHUB_JOB"),
+        cicd_attributes.CICD_PIPELINE_RUN_ID: (int, "GITHUB_RUN_ID"),
+        "cicd.pipeline.run.attempt": (int, "GITHUB_RUN_ATTEMPT"),
+        cicd_attributes.CICD_PIPELINE_TASK_NAME: (str, "GITHUB_ACTION"),
+        vcs_attributes.VCS_REF_HEAD_NAME: (str, "GITHUB_REF_NAME"),
+        vcs_attributes.VCS_REF_HEAD_TYPE: (str, "GITHUB_REF_TYPE"),
+        vcs_attributes.VCS_REF_BASE_NAME: (str, "GITHUB_BASE_REF"),
+        "vcs.repository.name": (str, "GITHUB_REPOSITORY"),
+        "vcs.repository.id": (int, "GITHUB_REPOSITORY_ID"),
     }
 
     def detect(self) -> Resource:
@@ -52,8 +52,8 @@ class GitHubActionsResourceDetector(ResourceDetector):
         if head_sha is not None:
             attributes[vcs_attributes.VCS_REF_HEAD_REVISION] = head_sha
 
-        for attribute_name, envvar in self.OPENTELEMETRY_GHA_MAPPING.items():
+        for attribute_name, (type_, envvar) in self.OPENTELEMETRY_GHA_MAPPING.items():
             if envvar in os.environ:
-                attributes[attribute_name] = os.environ[envvar]
+                attributes[attribute_name] = type_(os.environ[envvar])
 
         return Resource(attributes)
