@@ -77,7 +77,7 @@ class PytestMergify:
             self.session_span = self.tracer.start_span(
                 "pytest session start",
                 attributes={
-                    "test.type": "session",
+                    "test.scope": "session",
                 },
             )
         self.has_error = False
@@ -108,7 +108,7 @@ class PytestMergify:
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
                 item.nodeid,
-                attributes=self._attributes_from_item(item) | {"test.type": "case"},
+                attributes=self._attributes_from_item(item) | {"test.scope": "case"},
                 context=context,
             ):
                 yield
@@ -148,7 +148,7 @@ class PytestMergify:
             SpanAttributes.CODE_FUNCTION: fixturedef.argname,
             SpanAttributes.CODE_LINENO: fixturedef.func.__code__.co_firstlineno,
             "test.fixture.scope": fixturedef.scope,
-            "test.type": "fixture",
+            "test.scope": "fixture",
         }
 
     def _name_from_fixturedef(
