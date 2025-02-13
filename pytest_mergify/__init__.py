@@ -65,7 +65,7 @@ class PytestMergify:
 
         if utils.get_ci_provider() == "github_actions":
             terminalreporter.write_line(
-                f"::notice title=Mergify CI::MERGIFY_TEST_ROOT_SPAN_ID={self.session_span.get_span_context().span_id}",
+                f"::notice title=Mergify CI::MERGIFY_TEST_RUN_ID={self.session_span.get_span_context().span_id}",
             )
 
     @property
