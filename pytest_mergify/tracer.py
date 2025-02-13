@@ -80,7 +80,6 @@ class MergifyTracer:
         else:
             return
 
-        resources_gha.GitHubActionsResourceDetector().detect()
         resource = opentelemetry.sdk.resources.get_aggregated_resources(
             [
                 resources_ci.CIResourceDetector(),
