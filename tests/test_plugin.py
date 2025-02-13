@@ -46,7 +46,7 @@ def test_with_token_gha(
     result = pytester.runpytest_subprocess()
     result.assert_outcomes(passed=1)
     for line in result.stdout.lines:
-        if line.startswith("::notice title=Mergify CI::MERGIFY_TEST_ROOT_SPAN_ID="):
+        if line.startswith("::notice title=Mergify CI::MERGIFY_TEST_RUN_ID="):
             notice, title, trace_id = line.split("=", 2)
             assert int(trace_id) >= 0
             break
