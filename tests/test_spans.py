@@ -23,7 +23,7 @@ def test_session(
 ) -> None:
     result, spans = pytester_with_spans()
     s = spans["pytest session start"]
-    assert s.attributes == {"test.type": "session"}
+    assert s.attributes == {"test.scope": "session"}
     assert s.status.status_code == opentelemetry.trace.StatusCode.OK
 
 
@@ -32,7 +32,7 @@ def test_session_fail(
 ) -> None:
     result, spans = pytester_with_spans("def test_fail(): assert False")
     s = spans["pytest session start"]
-    assert s.attributes == {"test.type": "session"}
+    assert s.attributes == {"test.scope": "session"}
     assert s.status.status_code == opentelemetry.trace.StatusCode.ERROR
 
 
@@ -43,7 +43,7 @@ def test_test(
     session_span = spans["pytest session start"]
 
     assert spans["test_test.py::test_pass"].attributes == {
-        "test.type": "case",
+        "test.scope": "case",
         "code.function": "test_pass",
         "code.lineno": 0,
         "code.filepath": "test_test.py",
@@ -69,7 +69,7 @@ def test_test_failure(
 
     assert spans["test_test_failure.py::test_error"].attributes == {
         "test.case.result.status": "failed",
-        "test.type": "case",
+        "test.scope": "case",
         "code.function": "test_error",
         "code.lineno": 0,
         "code.filepath": "test_test_failure.py",
@@ -110,7 +110,7 @@ def test_skipped():
 
     assert spans["test_test_skipped.py::test_skipped"].attributes == {
         "test.case.result.status": "skipped",
-        "test.type": "case",
+        "test.scope": "case",
         "code.function": "test_skipped",
         "code.lineno": 1,
         "code.filepath": "test_test_skipped.py",
@@ -146,7 +146,7 @@ def test_fixture(
         assert name in spans
 
     assert spans["myfix setup"].attributes == {
-        "test.type": "fixture",
+        "test.scope": "fixture",
         "code.function": "myfix",
         "code.lineno": 2,
         "code.filepath": anys.ANY_STR,
@@ -160,7 +160,7 @@ def test_fixture(
     )
 
     assert spans["myfix teardown"].attributes == {
-        "test.type": "fixture",
+        "test.scope": "fixture",
         "code.function": "myfix",
         "code.lineno": 2,
         "code.filepath": anys.ANY_STR,
@@ -193,7 +193,7 @@ def test_fixture_failure(
         assert name in spans
 
     assert spans["myfix setup"].attributes == {
-        "test.type": "fixture",
+        "test.scope": "fixture",
         "code.function": "myfix",
         "code.lineno": 2,
         "code.filepath": anys.ANY_STR,
@@ -209,7 +209,7 @@ def test_fixture_failure(
     )
 
     assert spans["myfix teardown"].attributes == {
-        "test.type": "fixture",
+        "test.scope": "fixture",
         "code.function": "myfix",
         "code.lineno": 2,
         "code.filepath": anys.ANY_STR,
@@ -224,7 +224,7 @@ def test_fixture_failure(
     )
 
     assert spans["test_fixture_failure.py::test_pass"].attributes == {
-        "test.type": "case",
+        "test.scope": "case",
         "code.function": "test_pass",
         "code.lineno": 3,
         "code.filepath": "test_fixture_failure.py",
