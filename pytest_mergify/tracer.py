@@ -1,5 +1,6 @@
 import dataclasses
 import os
+import random
 
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
@@ -14,7 +15,6 @@ from pytest_mergify import utils
 import pytest_mergify.resources.ci as resources_ci
 import pytest_mergify.resources.github_actions as resources_gha
 import pytest_mergify.resources.pytest as resources_pytest
-import pytest_mergify.resources.mergify as resources_mergify
 
 
 class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
@@ -52,6 +52,7 @@ class MergifyTracer:
     tracer_provider: opentelemetry.sdk.trace.TracerProvider | None = dataclasses.field(
         init=False, default=None
     )
+    test_run_id: int = dataclasses.field(default_factory=lambda: random.getrandbits(64))
 
     def __post_init__(self) -> None:
         span_processor: SpanProcessor
@@ -82,11 +83,18 @@ class MergifyTracer:
         resources_gha.GitHubActionsResourceDetector().detect()
         resource = opentelemetry.sdk.resources.get_aggregated_resources(
             [
-                resources_mergify.MergifyResourceDetector(),
                 resources_ci.CIResourceDetector(),
                 resources_gha.GitHubActionsResourceDetector(),
                 resources_pytest.PytestResourceDetector(),
             ]
+        )
+
+        resource = resource.merge(
+            opentelemetry.sdk.resources.Resource(
+                {
+                    "test.run.id": self.test_run_id,
+                }
+            )
         )
 
         self.tracer_provider = TracerProvider(resource=resource)

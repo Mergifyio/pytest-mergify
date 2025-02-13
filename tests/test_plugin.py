@@ -47,8 +47,9 @@ def test_with_token_gha(
     result.assert_outcomes(passed=1)
     for line in result.stdout.lines:
         if line.startswith("::notice title=Mergify CI::MERGIFY_TEST_RUN_ID="):
-            notice, title, trace_id = line.split("=", 2)
-            assert int(trace_id) >= 0
+            notice, title, test_run_id = line.split("=", 2)
+            assert len(test_run_id) == 16
+            assert len(bytes.fromhex(test_run_id)) == 8
             break
     else:
         pytest.fail("No trace id found")
