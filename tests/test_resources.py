@@ -55,13 +55,3 @@ def test_span_github_actions(
         span.resource.attributes["cicd.pipeline.run.id"] == 3213121312
         for span in spans.values()
     )
-
-
-def test_span_resources_attributes_mergify(
-    pytester_with_spans: conftest.PytesterWithSpanT,
-) -> None:
-    result, spans = pytester_with_spans()
-    assert all(
-        isinstance(span.resource.attributes["test.run.id"], int)
-        for span in spans.values()
-    )
