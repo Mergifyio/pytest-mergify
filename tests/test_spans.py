@@ -245,3 +245,13 @@ test_fixture_failure.py:3: Exception""",
         spans["test_fixture_failure.py::test_pass"].status.description
         == "<class 'Exception'>: HELLO"
     )
+
+
+def test_span_resources_test_run_id(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    result, spans = pytester_with_spans()
+    assert all(
+        isinstance(span.resource.attributes["test.run.id"], int)
+        for span in spans.values()
+    )
