@@ -252,6 +252,8 @@ def test_span_resources_test_run_id(
 ) -> None:
     result, spans = pytester_with_spans()
     assert all(
-        isinstance(span.resource.attributes["test.run.id"], int)
+        isinstance(span.resource.attributes["test.run.id"], str)
+        and len(span.resource.attributes["test.run.id"]) == 16
+        and int(span.resource.attributes["test.run.id"], 16) > 0
         for span in spans.values()
     )

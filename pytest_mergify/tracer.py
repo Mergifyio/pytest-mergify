@@ -52,7 +52,9 @@ class MergifyTracer:
     tracer_provider: opentelemetry.sdk.trace.TracerProvider | None = dataclasses.field(
         init=False, default=None
     )
-    test_run_id: int = dataclasses.field(default_factory=lambda: random.getrandbits(64))
+    test_run_id: str = dataclasses.field(
+        default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex()
+    )
 
     def __post_init__(self) -> None:
         span_processor: SpanProcessor
