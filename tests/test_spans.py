@@ -14,7 +14,7 @@ def test_span(
     result, spans = pytester_with_spans()
     assert set(spans.keys()) == {
         "pytest session start",
-        "test_span.py::test_pass",
+        "test_pass",
     }
 
 
@@ -42,22 +42,17 @@ def test_test(
     result, spans = pytester_with_spans()
     session_span = spans["pytest session start"]
 
-    assert spans["test_test.py::test_pass"].attributes == {
+    assert spans["test_pass"].attributes == {
         "test.scope": "case",
         "code.function": "test_pass",
         "code.lineno": 0,
         "code.filepath": "test_test.py",
         "test.case.result.status": "passed",
     }
-    assert (
-        spans["test_test.py::test_pass"].status.status_code
-        == opentelemetry.trace.StatusCode.OK
-    )
+    assert spans["test_pass"].status.status_code == opentelemetry.trace.StatusCode.OK
     assert session_span.context is not None
-    assert spans["test_test.py::test_pass"].parent is not None
-    assert (
-        spans["test_test.py::test_pass"].parent.span_id == session_span.context.span_id
-    )
+    assert spans["test_pass"].parent is not None
+    assert spans["test_pass"].parent.span_id == session_span.context.span_id
 
 
 def test_test_failure(
@@ -66,7 +61,7 @@ def test_test_failure(
     result, spans = pytester_with_spans("def test_error(): assert False, 'foobar'")
     session_span = spans["pytest session start"]
 
-    assert spans["test_test_failure.py::test_error"].attributes == {
+    assert spans["test_error"].attributes == {
         "test.case.result.status": "failed",
         "test.scope": "case",
         "code.function": "test_error",
@@ -81,19 +76,15 @@ E   assert False
 test_test_failure.py:1: AssertionError""",
     }
     assert (
-        spans["test_test_failure.py::test_error"].status.status_code
-        == opentelemetry.trace.StatusCode.ERROR
+        spans["test_error"].status.status_code == opentelemetry.trace.StatusCode.ERROR
     )
     assert (
-        spans["test_test_failure.py::test_error"].status.description
+        spans["test_error"].status.description
         == "<class 'AssertionError'>: foobar\nassert False"
     )
     assert session_span.context is not None
-    assert spans["test_test_failure.py::test_error"].parent is not None
-    assert (
-        spans["test_test_failure.py::test_error"].parent.span_id
-        == session_span.context.span_id
-    )
+    assert spans["test_error"].parent is not None
+    assert spans["test_error"].parent.span_id == session_span.context.span_id
 
 
 def test_test_skipped(
@@ -106,23 +97,17 @@ def test_skipped():
 """)
     session_span = spans["pytest session start"]
 
-    assert spans["test_test_skipped.py::test_skipped"].attributes == {
+    assert spans["test_skipped"].attributes == {
         "test.case.result.status": "skipped",
         "test.scope": "case",
         "code.function": "test_skipped",
         "code.lineno": 1,
         "code.filepath": "test_test_skipped.py",
     }
-    assert (
-        spans["test_test_skipped.py::test_skipped"].status.status_code
-        == opentelemetry.trace.StatusCode.OK
-    )
+    assert spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.OK
     assert session_span.context is not None
-    assert spans["test_test_skipped.py::test_skipped"].parent is not None
-    assert (
-        spans["test_test_skipped.py::test_skipped"].parent.span_id
-        == session_span.context.span_id
-    )
+    assert spans["test_skipped"].parent is not None
+    assert spans["test_skipped"].parent.span_id == session_span.context.span_id
 
 
 def test_fixture(
@@ -220,7 +205,7 @@ def test_fixture_failure(
         == opentelemetry.trace.StatusCode.UNSET
     )
 
-    assert spans["test_fixture_failure.py::test_pass"].attributes == {
+    assert spans["test_pass"].attributes == {
         "test.scope": "case",
         "code.function": "test_pass",
         "code.lineno": 3,
@@ -233,14 +218,8 @@ E   Exception: HELLO
 
 test_fixture_failure.py:3: Exception""",
     }
-    assert (
-        spans["test_fixture_failure.py::test_pass"].status.status_code
-        == opentelemetry.trace.StatusCode.ERROR
-    )
-    assert (
-        spans["test_fixture_failure.py::test_pass"].status.description
-        == "<class 'Exception'>: HELLO"
-    )
+    assert spans["test_pass"].status.status_code == opentelemetry.trace.StatusCode.ERROR
+    assert spans["test_pass"].status.description == "<class 'Exception'>: HELLO"
 
 
 def test_span_resources_test_run_id(
