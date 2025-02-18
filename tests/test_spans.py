@@ -47,7 +47,6 @@ def test_test(
         "code.function": "test_pass",
         "code.lineno": 0,
         "code.filepath": "test_test.py",
-        "test.case.name": "test_test.py::test_pass",
         "test.case.result.status": "passed",
     }
     assert (
@@ -73,7 +72,6 @@ def test_test_failure(
         "code.function": "test_error",
         "code.lineno": 0,
         "code.filepath": "test_test_failure.py",
-        "test.case.name": "test_test_failure.py::test_error",
         SpanAttributes.EXCEPTION_TYPE: "<class 'AssertionError'>",
         SpanAttributes.EXCEPTION_MESSAGE: "foobar\nassert False",
         SpanAttributes.EXCEPTION_STACKTRACE: """>   def test_error(): assert False, 'foobar'
@@ -114,7 +112,6 @@ def test_skipped():
         "code.function": "test_skipped",
         "code.lineno": 1,
         "code.filepath": "test_test_skipped.py",
-        "test.case.name": "test_test_skipped.py::test_skipped",
     }
     assert (
         spans["test_test_skipped.py::test_skipped"].status.status_code
@@ -228,7 +225,6 @@ def test_fixture_failure(
         "code.function": "test_pass",
         "code.lineno": 3,
         "code.filepath": "test_fixture_failure.py",
-        "test.case.name": "test_fixture_failure.py::test_pass",
         SpanAttributes.EXCEPTION_TYPE: "<class 'Exception'>",
         SpanAttributes.EXCEPTION_MESSAGE: "HELLO",
         SpanAttributes.EXCEPTION_STACKTRACE: """@pytest.fixture

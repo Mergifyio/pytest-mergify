@@ -97,7 +97,6 @@ class PytestMergify:
             SpanAttributes.CODE_FILEPATH: filepath,
             SpanAttributes.CODE_FUNCTION: item.name,
             SpanAttributes.CODE_LINENO: line_number or 0,
-            "test.case.name": item.nodeid,
         }
 
     @pytest.hookimpl(hookwrapper=True)
