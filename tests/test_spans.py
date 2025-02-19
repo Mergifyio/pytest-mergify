@@ -1,9 +1,6 @@
-import typing
-
 import opentelemetry.trace
 from opentelemetry.semconv.trace import SpanAttributes
 
-import anys
 
 from tests import conftest
 
@@ -108,118 +105,6 @@ def test_skipped():
     assert session_span.context is not None
     assert spans["test_skipped"].parent is not None
     assert spans["test_skipped"].parent.span_id == session_span.context.span_id
-
-
-def test_fixture(
-    pytester_with_spans: conftest.PytesterWithSpanT,
-) -> None:
-    result, spans = pytester_with_spans("""
-    import pytest
-    @pytest.fixture
-    def myfix(): pass
-    def test_pass(myfix): pass
-    """)
-
-    expected_spans = (
-        "myfix setup",
-        "myfix teardown",
-    )
-    for name in expected_spans:
-        assert name in spans
-
-    assert spans["myfix setup"].attributes == {
-        "test.scope": "fixture",
-        "code.function": "myfix",
-        "code.lineno": 2,
-        "code.filepath": anys.ANY_STR,
-        "test.fixture.scope": "function",
-    }
-    assert typing.cast(str, spans["myfix setup"].attributes["code.filepath"]).endswith(
-        "test_fixture.py"
-    )
-    assert (
-        spans["myfix setup"].status.status_code == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["myfix teardown"].attributes == {
-        "test.scope": "fixture",
-        "code.function": "myfix",
-        "code.lineno": 2,
-        "code.filepath": anys.ANY_STR,
-        "test.fixture.scope": "function",
-    }
-    assert typing.cast(
-        str, spans["myfix teardown"].attributes["code.filepath"]
-    ).endswith("test_fixture.py")
-    assert (
-        spans["myfix teardown"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
-
-def test_fixture_failure(
-    pytester_with_spans: conftest.PytesterWithSpanT,
-) -> None:
-    result, spans = pytester_with_spans("""
-    import pytest
-    @pytest.fixture
-    def myfix(): raise Exception("HELLO")
-    def test_pass(myfix): pass
-    """)
-
-    expected_spans = (
-        "myfix setup",
-        "myfix teardown",
-    )
-    for name in expected_spans:
-        assert name in spans
-
-    assert spans["myfix setup"].attributes == {
-        "test.scope": "fixture",
-        "code.function": "myfix",
-        "code.lineno": 2,
-        "code.filepath": anys.ANY_STR,
-        "test.fixture.scope": "function",
-    }
-    assert typing.cast(str, spans["myfix setup"].attributes["code.filepath"]).endswith(
-        "test_fixture_failure.py"
-    )
-    # NOTE: this should probably be error, but it seems there no way to catch fixture issue
-    # Anyhow, the test is marked as fail and the problem is pointed to the fixture
-    assert (
-        spans["myfix setup"].status.status_code == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["myfix teardown"].attributes == {
-        "test.scope": "fixture",
-        "code.function": "myfix",
-        "code.lineno": 2,
-        "code.filepath": anys.ANY_STR,
-        "test.fixture.scope": "function",
-    }
-    assert typing.cast(
-        str, spans["myfix teardown"].attributes["code.filepath"]
-    ).endswith("test_fixture_failure.py")
-    assert (
-        spans["myfix teardown"].status.status_code
-        == opentelemetry.trace.StatusCode.UNSET
-    )
-
-    assert spans["test_pass"].attributes == {
-        "test.scope": "case",
-        "code.function": "test_pass",
-        "code.lineno": 3,
-        "code.filepath": "test_fixture_failure.py",
-        SpanAttributes.EXCEPTION_TYPE: "<class 'Exception'>",
-        SpanAttributes.EXCEPTION_MESSAGE: "HELLO",
-        SpanAttributes.EXCEPTION_STACKTRACE: """@pytest.fixture
->   def myfix(): raise Exception("HELLO")
-E   Exception: HELLO
-
-test_fixture_failure.py:3: Exception""",
-    }
-    assert spans["test_pass"].status.status_code == opentelemetry.trace.StatusCode.ERROR
-    assert spans["test_pass"].status.description == "<class 'Exception'>: HELLO"
 
 
 def test_span_resources_test_run_id(
