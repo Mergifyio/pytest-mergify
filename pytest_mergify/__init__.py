@@ -42,7 +42,7 @@ class PytestMergify:
                     red=True,
                 )
             try:
-                self.mergify_tracer.tracer_provider.shutdown()  # type: ignore[no-untyped-call]
+                self.mergify_tracer.tracer_provider.shutdown()
             except Exception as e:
                 terminalreporter.write_line(
                     f"Error while shutting down the tracer: {e}",
@@ -69,7 +69,7 @@ class PytestMergify:
             )
 
     @property
-    def tracer(self) -> opentelemetry.trace.Tracer | None:
+    def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
         return self.mergify_tracer.tracer
 
     def pytest_sessionstart(self, session: _pytest.main.Session) -> None:
@@ -91,7 +91,9 @@ class PytestMergify:
             )
             self.session_span.end()
 
-    def _attributes_from_item(self, item: _pytest.nodes.Item) -> dict[str, str | int]:
+    def _attributes_from_item(
+        self, item: _pytest.nodes.Item
+    ) -> typing.Dict[str, typing.Union[str, int]]:
         filepath, line_number, _ = item.location
         return {
             SpanAttributes.CODE_FILEPATH: filepath,
@@ -107,7 +109,10 @@ class PytestMergify:
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
                 item.name,
-                attributes=self._attributes_from_item(item) | {"test.scope": "case"},
+                attributes={
+                    **self._attributes_from_item(item),
+                    **{"test.scope": "case"},
+                },
                 context=context,
             ):
                 yield

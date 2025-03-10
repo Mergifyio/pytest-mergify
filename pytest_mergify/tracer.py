@@ -1,6 +1,7 @@
 import dataclasses
 import os
 import random
+import typing
 
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
@@ -20,7 +21,7 @@ import pytest_mergify.resources.pytest as resources_pytest
 class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
     def __init__(self, exporter: export.SpanExporter) -> None:
         super().__init__(exporter)
-        self.queue: list[ReadableSpan] = []
+        self.queue: typing.List[ReadableSpan] = []
 
     def force_flush(self, timeout_millis: int = 30_000) -> bool:
         self.span_exporter.export(self.queue)
@@ -36,21 +37,25 @@ class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
 
 @dataclasses.dataclass
 class MergifyTracer:
-    token: str | None = dataclasses.field(
+    token: typing.Optional[str] = dataclasses.field(
         default_factory=lambda: os.environ.get("MERGIFY_TOKEN")
     )
-    repo_name: str | None = dataclasses.field(default_factory=utils.get_repository_name)
+    repo_name: typing.Optional[str] = dataclasses.field(
+        default_factory=utils.get_repository_name
+    )
     api_url: str = dataclasses.field(
         default_factory=lambda: os.environ.get(
             "MERGIFY_API_URL", "https://api.mergify.com"
         )
     )
-    exporter: export.SpanExporter | None = dataclasses.field(init=False, default=None)
-    tracer: opentelemetry.trace.Tracer | None = dataclasses.field(
+    exporter: typing.Optional[export.SpanExporter] = dataclasses.field(
         init=False, default=None
     )
-    tracer_provider: opentelemetry.sdk.trace.TracerProvider | None = dataclasses.field(
+    tracer: typing.Optional[opentelemetry.trace.Tracer] = dataclasses.field(
         init=False, default=None
+    )
+    tracer_provider: typing.Optional[opentelemetry.sdk.trace.TracerProvider] = (
+        dataclasses.field(init=False, default=None)
     )
     test_run_id: str = dataclasses.field(
         default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex()

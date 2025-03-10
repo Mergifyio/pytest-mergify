@@ -1,6 +1,7 @@
 import os
 import pathlib
 import json
+import typing
 
 from opentelemetry.sdk.resources import Resource, ResourceDetector
 
@@ -14,7 +15,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
     """Detects OpenTelemetry Resource attributes for GitHub Actions."""
 
     @staticmethod
-    def get_github_actions_head_sha() -> str | None:
+    def get_github_actions_head_sha() -> typing.Optional[str]:
         if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
             # NOTE: we want the head sha of the pull request
             event_raw_path = os.getenv("GITHUB_EVENT_PATH")
@@ -26,7 +27,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
         return os.getenv("GITHUB_SHA")
 
     @staticmethod
-    def get_github_head_ref_name() -> str | None:
+    def get_github_head_ref_name() -> typing.Optional[str]:
         return os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF")
 
     OPENTELEMETRY_GHA_MAPPING = {
