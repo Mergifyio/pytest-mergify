@@ -20,6 +20,7 @@ pull_request_rules:
       - author != dependabot[bot]
       - -closed
       - and: &CheckRuns
+          - check-success = test (3.9)
           - check-success = test (3.10)
           - check-success = test (3.11)
           - check-success = test (3.12)
