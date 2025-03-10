@@ -17,8 +17,8 @@ def set_api_url(
     monkeypatch.setenv("MERGIFY_API_URL", "http://localhost:9999")
 
 
-PytesterWithSpanReturnT = tuple[
-    _pytest.pytester.RunResult, dict[str, trace.ReadableSpan]
+PytesterWithSpanReturnT = typing.Tuple[
+    _pytest.pytester.RunResult, typing.Dict[str, trace.ReadableSpan]
 ]
 
 

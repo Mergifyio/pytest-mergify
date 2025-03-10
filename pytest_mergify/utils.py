@@ -4,14 +4,14 @@ import typing
 
 CIProviderT = typing.Literal["github_actions", "circleci", "pytest_mergify_suite"]
 
-SUPPORTED_CIs: dict[str, CIProviderT] = {
+SUPPORTED_CIs: typing.Dict[str, CIProviderT] = {
     "GITHUB_ACTIONS": "github_actions",
     "CIRCLECI": "circleci",
     "_PYTEST_MERGIFY_TEST": "pytest_mergify_suite",
 }
 
 
-def get_ci_provider() -> CIProviderT | None:
+def get_ci_provider() -> typing.Optional[CIProviderT]:
     for envvar, name in SUPPORTED_CIs.items():
         if envvar in os.environ and strtobool(os.environ[envvar]):
             return name
@@ -19,7 +19,7 @@ def get_ci_provider() -> CIProviderT | None:
     return None
 
 
-def get_repository_name() -> str | None:
+def get_repository_name() -> typing.Optional[str]:
     provider = get_ci_provider()
 
     if provider == "github_actions":
