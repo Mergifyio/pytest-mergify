@@ -155,6 +155,9 @@ class PytestMergify:
         if report.when != "call":
             return
 
+        if report.outcome is None:
+            return  # type: ignore[unreachable]
+
         has_error = report.outcome == "failed"
         status_code = (
             opentelemetry.trace.StatusCode.ERROR
