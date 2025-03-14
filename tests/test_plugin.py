@@ -29,14 +29,17 @@ def test_no_token(pytester: Pytester) -> None:
     )
 
 
+@pytest.mark.parametrize("http_server", [200], indirect=True)
 def test_with_token_gha(
     pytester: Pytester,
     monkeypatch: pytest.MonkeyPatch,
+    http_server: str,
 ) -> None:
     monkeypatch.setenv("CI", "1")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
     monkeypatch.setenv("MERGIFY_TOKEN", "foobar")
+    monkeypatch.setenv("MERGIFY_API_URL", http_server)
     pytester.makepyfile(
         """
         def test_foo():
@@ -113,6 +116,10 @@ def test_errors_logs(
         )
         for line in result.stdout.lines
     )
+    assert not any(
+        line.startswith("::notice title=Mergify CI::MERGIFY_TEST_RUN_ID=")
+        for line in result.stdout.lines
+    )
 
 
 @pytest.mark.parametrize("http_server", [403], indirect=True)
@@ -140,5 +147,9 @@ def test_errors_logs_403(
         line.startswith(
             "Error while exporting traces: 403 Client Error: Forbidden for url:"
         )
+        for line in result.stdout.lines
+    )
+    assert not any(
+        line.startswith("::notice title=Mergify CI::MERGIFY_TEST_RUN_ID=")
         for line in result.stdout.lines
     )
