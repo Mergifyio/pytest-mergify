@@ -1,10 +1,14 @@
 import typing
+import http.server
+import socketserver
+import threading
 
 import pytest
 import _pytest.pytester
 from opentelemetry.sdk import trace
 
 import pytest_mergify
+
 
 pytest_plugins = ["pytester"]
 
@@ -53,3 +57,39 @@ def pytester_with_spans(
         return result, spans_as_dict
 
     return _run
+
+
+class TestHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
+    # Class attribute for the response code, set by the fixture.
+    response_code: int = 200
+
+    def do_POST(self) -> None:
+        path = self.path[1:].split("/")
+        # loozy match, who cares
+        if path[0] == "v1" and path[-1] == "traces" and path[-2] == "ci":
+            self.send_response(self.__class__.response_code)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        # Override to suppress console logging during tests.
+        pass
+
+
+@pytest.fixture
+def http_server(request: pytest.FixtureRequest) -> typing.Generator[str, None, None]:
+    # Allow parameterization of the response code via request.param.
+    response_code = getattr(request, "param", 200)
+    TestHTTPRequestHandler.response_code = response_code
+
+    with socketserver.TCPServer(("", 0), TestHTTPRequestHandler) as httpd:
+        host, port = httpd.server_address  # retrieve the actual port
+        thread = threading.Thread(target=httpd.serve_forever)
+        thread.daemon = True
+        thread.start()
+        yield f"http://{host!s}:{port}"
+        httpd.shutdown()
