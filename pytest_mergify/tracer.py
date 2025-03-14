@@ -3,6 +3,7 @@ import os
 import random
 import typing
 
+import requests  # type: ignore[import-untyped]
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
 from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan
@@ -33,6 +34,15 @@ class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
             return
 
         self.queue.append(span)
+
+
+class SessionHardRaiser(requests.Session):  # type: ignore[misc]
+    """Custom requests.Session that raises an exception on HTTP error."""
+
+    def request(self, *args: typing.Any, **kwargs: typing.Any) -> requests.Response:
+        response = super().request(*args, **kwargs)
+        response.raise_for_status()
+        return response
 
 
 @dataclasses.dataclass
@@ -79,6 +89,7 @@ class MergifyTracer:
                 return
 
             self.exporter = OTLPSpanExporter(
+                session=SessionHardRaiser(),
                 endpoint=f"{self.api_url}/v1/repos/{self.repo_name}/ci/traces",
                 headers={"Authorization": f"Bearer {self.token}"},
                 compression=Compression.Gzip,

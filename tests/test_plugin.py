@@ -113,3 +113,32 @@ def test_errors_logs(
         )
         for line in result.stdout.lines
     )
+
+
+@pytest.mark.parametrize("http_server", [403], indirect=True)
+def test_errors_logs_403(
+    pytester: _pytest.pytester.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    http_server: str,
+) -> None:
+    # This will try to upload traces, but we don't have a real exporter so it will log errors.
+    monkeypatch.delenv("PYTEST_MERGIFY_DEBUG", raising=False)
+    monkeypatch.setenv("MERGIFY_TOKEN", "x")
+    monkeypatch.setenv("CI", "1")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "foo/bar")
+    monkeypatch.setenv("MERGIFY_API_URL", http_server)
+    pytester.makepyfile(
+        """
+        def test_pass():
+            pass
+        """
+    )
+    result = pytester.runpytest_subprocess()
+    result.assert_outcomes(passed=1)
+    assert any(
+        line.startswith(
+            "Error while exporting traces: 403 Client Error: Forbidden for url:"
+        )
+        for line in result.stdout.lines
+    )
