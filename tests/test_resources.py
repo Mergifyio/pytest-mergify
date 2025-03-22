@@ -41,6 +41,7 @@ def test_span_github_actions(
     monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
     monkeypatch.setenv("GITHUB_RUN_ID", "3213121312")
+    monkeypatch.setenv("RUNNER_NAME", "self-hosted")
     result, spans = pytester_with_spans()
     assert all(
         span.resource.attributes["vcs.repository.name"] == "Mergifyio/pytest-mergify"
@@ -53,5 +54,9 @@ def test_span_github_actions(
     )
     assert all(
         span.resource.attributes["cicd.pipeline.run.id"] == 3213121312
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["cicd.pipeline.runner.name"] == "self-hosted"
         for span in spans.values()
     )
