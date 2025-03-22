@@ -10,6 +10,16 @@ from opentelemetry.semconv._incubating.attributes import vcs_attributes
 
 from pytest_mergify import utils
 
+import requests
+
+
+class Job(typing.TypedDict):
+    id: int
+    runner_id: int
+    runner_name: str
+    runner_group_id: int
+    status: str
+
 
 class GitHubActionsResourceDetector(ResourceDetector):
     """Detects OpenTelemetry Resource attributes for GitHub Actions."""
@@ -29,6 +39,80 @@ class GitHubActionsResourceDetector(ResourceDetector):
     @staticmethod
     def get_github_head_ref_name() -> typing.Optional[str]:
         return os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF")
+
+    @staticmethod
+    def list_github_jobs() -> typing.Iterable["Job"]:
+        try:
+            run_id = os.environ["GITHUB_RUN_ID"]
+            run_attempts = os.environ["GITHUB_RUN_ATTEMPT"]
+            repository_id = os.environ["GITHUB_REPOSITORY_ID"]
+            github_server_url = os.environ["GITHUB_SERVER_URL"]
+            github_token = os.environ["GITHUB_TOKEN"]
+        except KeyError:
+            return
+
+        if github_server_url == "https://github.com":
+            github_api_url = "https://api.github.com"
+        else:
+            github_api_url = f"{github_server_url}/api/v3"
+
+        url = f"{github_api_url}/repositories/${repository_id}/actions/runs/{run_id}/attempts/{run_attempts}/jobs?per_page=100"
+
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {github_token}",
+        }
+        with requests.Session(headers=headers) as session:
+            while url:
+                response = session.get(url)
+                if response.ok:
+                    yield from response.json()["jobs"]
+                url = response.links.get("next")
+
+    def match_current_job(
+        job: "Job",
+        runner_id: int,
+        runner_name: str,
+    ) -> bool:
+        # NOTE(sileht): Only one job can run at a time on a GitHub Action runner
+        # So, for a workflow run attempts, we can match the only in_progress job that
+        # is running on the runner we are on.
+
+        if job["status"] != "in_progress":
+            return False
+
+        # self-hosted/github-hosted ID can clash, so first check the infra
+        running_on_github_hosted_runner = runner_name.startswith("GitHub-Actions-")
+        job_ran_on_github_hosted_runner = (
+            job["runner_group_id"] == 0 and job["runner_name"] == "GitHub Actions"
+        )
+
+        if running_on_github_hosted_runner != job_ran_on_github_hosted_runner:
+            return False
+
+        return job["runner_id"] == runner_id
+
+    @classmethod
+    def get_github_job(cls) -> typing.Optional["Job"]:
+        try:
+            runner_name = os.environ["RUNNER_NAME"]
+            runner_id = os.environ["RUNNER_ID"]
+        except KeyError:
+            return None
+
+        jobs = [
+            job
+            for job in cls.list_github_jobs()
+            if cls.match_current_job(job, runner_id, runner_name)
+        ]
+        jobs_count = len(jobs)
+        if jobs_count == 1:
+            return jobs[0]
+
+        # NOTE(sileht): We should do something to be able to debug this,
+        # especialy when job_count > 1
+
+        return None
 
     OPENTELEMETRY_GHA_MAPPING = {
         cicd_attributes.CICD_PIPELINE_NAME: (str, "GITHUB_JOB"),
@@ -63,5 +147,12 @@ class GitHubActionsResourceDetector(ResourceDetector):
         for attribute_name, (type_, envvar) in self.OPENTELEMETRY_GHA_MAPPING.items():
             if envvar in os.environ:
                 attributes[attribute_name] = type_(os.environ[envvar])
+
+        # We do that last to override CICD_PIPELINE_NAME if possible
+        if "PYTEST_MERGIFY_GITHUB_TOKEN" in os.environ:
+            job = self.get_github_job()
+            if job is not None:
+                attributes[cicd_attributes.CICD_PIPELINE_NAME] = job.name
+                attributes[cicd_attributes.CICD_PIPELINE_ID] = job.id
 
         return Resource(attributes)
