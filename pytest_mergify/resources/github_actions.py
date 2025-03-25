@@ -31,11 +31,10 @@ class GitHubActionsResourceDetector(ResourceDetector):
         return os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF")
 
     OPENTELEMETRY_GHA_MAPPING = {
-        cicd_attributes.CICD_PIPELINE_NAME: (str, "GITHUB_JOB"),
+        cicd_attributes.CICD_PIPELINE_TASK_NAME: (str, "GITHUB_JOB"),
         cicd_attributes.CICD_PIPELINE_RUN_ID: (int, "GITHUB_RUN_ID"),
         "cicd.pipeline.run.attempt": (int, "GITHUB_RUN_ATTEMPT"),
         "cicd.pipeline.runner.name": (str, "RUNNER_NAME"),
-        cicd_attributes.CICD_PIPELINE_TASK_NAME: (str, "GITHUB_ACTION"),
         vcs_attributes.VCS_REF_HEAD_TYPE: (str, "GITHUB_REF_TYPE"),
         vcs_attributes.VCS_REF_BASE_NAME: (str, "GITHUB_BASE_REF"),
         "vcs.repository.name": (str, "GITHUB_REPOSITORY"),
