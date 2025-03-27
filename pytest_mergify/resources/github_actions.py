@@ -26,15 +26,12 @@ class GitHubActionsResourceDetector(ResourceDetector):
                 return str(event["pull_request"]["head"]["sha"])
         return os.getenv("GITHUB_SHA")
 
-    @staticmethod
-    def get_github_head_ref_name() -> typing.Optional[str]:
-        return os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF")
-
     OPENTELEMETRY_GHA_MAPPING = {
         cicd_attributes.CICD_PIPELINE_TASK_NAME: (str, "GITHUB_JOB"),
         cicd_attributes.CICD_PIPELINE_RUN_ID: (int, "GITHUB_RUN_ID"),
         "cicd.pipeline.run.attempt": (int, "GITHUB_RUN_ATTEMPT"),
         "cicd.pipeline.runner.name": (str, "RUNNER_NAME"),
+        vcs_attributes.VCS_REF_HEAD_NAME: (str, "GITHUB_REF_NAME"),
         vcs_attributes.VCS_REF_HEAD_TYPE: (str, "GITHUB_REF_TYPE"),
         vcs_attributes.VCS_REF_BASE_NAME: (str, "GITHUB_BASE_REF"),
         "vcs.repository.name": (str, "GITHUB_REPOSITORY"),
@@ -51,10 +48,6 @@ class GitHubActionsResourceDetector(ResourceDetector):
             attributes[vcs_attributes.VCS_REPOSITORY_URL_FULL] = (
                 os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"]
             )
-
-        head_ref = self.get_github_head_ref_name()
-        if head_ref is not None:
-            attributes[vcs_attributes.VCS_REF_HEAD_NAME] = head_ref
 
         head_sha = self.get_github_actions_head_sha()
         if head_sha is not None:
