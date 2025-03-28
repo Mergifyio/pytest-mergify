@@ -1,6 +1,7 @@
 import opentelemetry.trace
 from opentelemetry.semconv.trace import SpanAttributes
 
+import pytest
 
 from tests import conftest
 
@@ -105,6 +106,69 @@ def test_skipped():
     assert session_span.context is not None
     assert spans["test_skipped"].parent is not None
     assert spans["test_skipped"].parent.span_id == session_span.context.span_id
+
+
+@pytest.mark.parametrize(
+    "mark",
+    [
+        "skip",
+        "skipif(True, reason='not needed')",
+        "skipif(1 + 1, reason='with eval')",
+        "skipif('1 + 1', reason='as str')",
+    ],
+)
+def test_mark_skipped(
+    mark: str,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    result, spans = pytester_with_spans(f"""
+import pytest
+@pytest.mark.{mark}
+def test_skipped():
+    assert False
+""")
+    session_span = spans["pytest session start"]
+
+    assert spans["test_skipped"].attributes == {
+        "test.case.result.status": "skipped",
+        "test.scope": "case",
+        "code.function": "test_skipped",
+        "code.lineno": 1,
+        "code.filepath": "test_mark_skipped.py",
+    }
+    assert (
+        spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.UNSET
+    )
+    assert session_span.context is not None
+    assert spans["test_skipped"].parent is not None
+    assert spans["test_skipped"].parent.span_id == session_span.context.span_id
+
+
+def test_mark_not_skipped(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    result, spans = pytester_with_spans("""
+import pytest
+@pytest.mark.skipif(False, reason='not skipped')
+def test_not_skipped():
+    assert True
+""")
+    session_span = spans["pytest session start"]
+
+    assert spans["test_not_skipped"].attributes == {
+        "test.case.result.status": "passed",
+        "test.scope": "case",
+        "code.function": "test_not_skipped",
+        "code.lineno": 1,
+        "code.filepath": "test_mark_not_skipped.py",
+    }
+    assert (
+        spans["test_not_skipped"].status.status_code
+        == opentelemetry.trace.StatusCode.OK
+    )
+    assert session_span.context is not None
+    assert spans["test_not_skipped"].parent is not None
+    assert spans["test_not_skipped"].parent.span_id == session_span.context.span_id
 
 
 def test_span_resources_test_run_id(
