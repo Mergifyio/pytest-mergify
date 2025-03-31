@@ -52,7 +52,6 @@ def pytester_with_spans(
             plugin.mergify_tracer.exporter.get_finished_spans()  # type: ignore[attr-defined]
         )
         spans_as_dict = {s.name: s for s in spans}
-        # raise Exception(spans_as_dict, spans[0].name, spans[1].name, spans[2].name, spans[0].attributes, spans[1].attributes, spans[2].attributes)
         # Make sure we don't lose spans in the process
         assert len(spans_as_dict) == len(spans)
         return result, spans_as_dict
