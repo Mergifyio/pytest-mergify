@@ -107,11 +107,30 @@ class PytestMergify:
         self, item: _pytest.nodes.Item
     ) -> typing.Generator[None, None, None]:
         if self.tracer:
+            if item.get_closest_marker("skip") is not None:
+                skip = True
+            elif (skipif_marker := item.get_closest_marker("skipif")) is not None:
+                condition = skipif_marker.args[0]
+                if isinstance(condition, str):
+                    # Evaluate the condition in the test module's global namespace.
+                    # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
+                    skip = eval(condition, item.module.__dict__)  # type: ignore[attr-defined]
+                else:
+                    skip = bool(condition)
+            else:
+                skip = False
+
+            if skip:
+                skip_attributes = {"test.case.result.status": "skipped"}
+            else:
+                skip_attributes = {}
+
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
                 item.name,
                 attributes={
                     **self._attributes_from_item(item),
+                    **skip_attributes,
                     **{"test.scope": "case"},
                 },
                 context=context,
