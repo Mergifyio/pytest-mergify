@@ -10,6 +10,7 @@ def test_span(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
+    assert spans is not None
     assert set(spans.keys()) == {
         "pytest session start",
         "test_pass",
@@ -20,6 +21,7 @@ def test_session(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
+    assert spans is not None
     s = spans["pytest session start"]
     assert s.attributes == {"test.scope": "session"}
     assert s.status.status_code == opentelemetry.trace.StatusCode.OK
@@ -29,6 +31,7 @@ def test_session_fail(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans("def test_fail(): assert False")
+    assert spans is not None
     s = spans["pytest session start"]
     assert s.attributes == {"test.scope": "session"}
     assert s.status.status_code == opentelemetry.trace.StatusCode.ERROR
@@ -38,6 +41,7 @@ def test_test(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
+    assert spans is not None
     session_span = spans["pytest session start"]
 
     assert spans["test_pass"].attributes == {
@@ -57,6 +61,7 @@ def test_test_failure(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans("def test_error(): assert False, 'foobar'")
+    assert spans is not None
     session_span = spans["pytest session start"]
 
     assert spans["test_error"].attributes == {
@@ -93,6 +98,7 @@ import pytest
 def test_skipped():
     pytest.skip('not needed')
 """)
+    assert spans is not None
     session_span = spans["pytest session start"]
 
     assert spans["test_skipped"].attributes == {
@@ -127,6 +133,7 @@ import pytest
 def test_skipped():
     assert False
 """)
+    assert spans is not None
     session_span = spans["pytest session start"]
 
     assert spans["test_skipped"].attributes == {
@@ -153,6 +160,7 @@ import pytest
 def test_not_skipped():
     assert True
 """)
+    assert spans is not None
     session_span = spans["pytest session start"]
 
     assert spans["test_not_skipped"].attributes == {
@@ -175,6 +183,7 @@ def test_span_resources_test_run_id(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
+    assert spans is not None
     assert all(
         isinstance(span.resource.attributes["test.run.id"], str)
         and len(span.resource.attributes["test.run.id"]) == 16

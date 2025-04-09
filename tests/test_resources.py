@@ -13,6 +13,7 @@ def test_span_resources_attributes_ci(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
+    assert spans is not None
     assert all(
         span.resource.attributes["cicd.provider.name"] == utils.get_ci_provider()
         for span in spans.values()
@@ -23,6 +24,7 @@ def test_span_resources_attributes_pytest(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
+    assert spans is not None
     assert all(
         re.match(
             r"\d\.",
@@ -38,6 +40,7 @@ def test_span_resources_attributes_mergify(
 ) -> None:
     monkeypatch.setenv("MERGIFY_TEST_JOB_NAME", "f00b4r")
     result, spans = pytester_with_spans()
+    assert spans is not None
     assert all(
         span.resource.attributes["mergify.test.job.name"] == "f00b4r"
         for span in spans.values()
@@ -55,6 +58,7 @@ def test_span_github_actions(
     monkeypatch.setenv("GITHUB_RUN_ID", "3213121312")
     monkeypatch.setenv("RUNNER_NAME", "self-hosted")
     result, spans = pytester_with_spans()
+    assert spans is not None
     assert all(
         span.resource.attributes["vcs.repository.name"] == "Mergifyio/pytest-mergify"
         for span in spans.values()

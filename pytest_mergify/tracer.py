@@ -73,6 +73,9 @@ class MergifyTracer:
     )
 
     def __post_init__(self) -> None:
+        if not utils.is_in_ci():
+            return
+
         span_processor: SpanProcessor
 
         if os.environ.get("PYTEST_MERGIFY_DEBUG"):
@@ -85,10 +88,7 @@ class MergifyTracer:
 
             self.exporter = InMemorySpanExporter()
             span_processor = export.SimpleSpanProcessor(self.exporter)
-        elif self.token:
-            if self.repo_name is None:
-                return
-
+        elif self.token and self.repo_name:
             self.exporter = OTLPSpanExporter(
                 session=SessionHardRaiser(),
                 endpoint=f"{self.api_url}/v1/repos/{self.repo_name}/ci/traces",
