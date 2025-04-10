@@ -9,6 +9,9 @@ from opentelemetry.sdk import trace
 
 import pytest_mergify
 
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 pytest_plugins = ["pytester"]
 
@@ -22,12 +25,16 @@ def set_api_url(
 
 
 PytesterWithSpanReturnT = typing.Tuple[
-    _pytest.pytester.RunResult, typing.Dict[str, trace.ReadableSpan]
+    _pytest.pytester.RunResult, typing.Optional[typing.Dict[str, trace.ReadableSpan]]
 ]
 
 
 class PytesterWithSpanT(typing.Protocol):
-    def __call__(self, code: str = ..., /) -> PytesterWithSpanReturnT: ...
+    def __call__(
+        self,
+        code: str = ...,
+        setenv: typing.Optional[typing.Dict[str, typing.Optional[str]]] = ...,
+    ) -> PytesterWithSpanReturnT: ...
 
 
 _DEFAULT_PYTESTER_CODE = "def test_pass(): pass"
@@ -39,21 +46,29 @@ def pytester_with_spans(
 ) -> PytesterWithSpanT:
     def _run(
         code: str = _DEFAULT_PYTESTER_CODE,
+        setenv: typing.Optional[typing.Dict[str, typing.Optional[str]]] = None,
     ) -> PytesterWithSpanReturnT:
         monkeypatch.delenv("PYTEST_MERGIFY_DEBUG", raising=False)
+        monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
+        for k, v in (setenv or {}).items():
+            if v is None:
+                monkeypatch.delenv(k, raising=False)
+            else:
+                monkeypatch.setenv(k, v)
         plugin = pytest_mergify.PytestMergify()
         pytester.makepyfile(code)
         result = pytester.runpytest_inprocess(plugins=[plugin])
         if code is _DEFAULT_PYTESTER_CODE:
             result.assert_outcomes(passed=1)
-        assert plugin.mergify_tracer.exporter is not None
-        spans: typing.List[trace.ReadableSpan] = (
-            plugin.mergify_tracer.exporter.get_finished_spans()  # type: ignore[attr-defined]
-        )
-        spans_as_dict = {s.name: s for s in spans}
-        # Make sure we don't lose spans in the process
-        assert len(spans_as_dict) == len(spans)
+        if isinstance(plugin.mergify_tracer.exporter, InMemorySpanExporter):
+            spans = plugin.mergify_tracer.exporter.get_finished_spans()
+            spans_as_dict = {s.name: s for s in spans}
+            # Make sure we don't lose spans in the process
+            assert len(spans_as_dict) == len(spans)
+        else:
+            spans_as_dict = None
+
         return result, spans_as_dict
 
     return _run

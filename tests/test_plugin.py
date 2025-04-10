@@ -4,6 +4,7 @@ import _pytest.config
 from _pytest.pytester import Pytester
 
 import pytest_mergify
+from . import conftest
 
 
 def test_plugin_is_loaded(pytestconfig: _pytest.config.Config) -> None:
@@ -14,15 +15,15 @@ def test_plugin_is_loaded(pytestconfig: _pytest.config.Config) -> None:
     assert isinstance(plugin, pytest_mergify.PytestMergify)
 
 
-def test_no_token(pytester: Pytester) -> None:
-    pytester.makepyfile(
-        """
-        def test_foo():
-            assert True
-        """
-    )
-    result = pytester.runpytest()
-    result.assert_outcomes(passed=1)
+def test_no_ci(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
+    result, spans = pytester_with_spans(setenv={"CI": "false"})
+    assert spans is None
+    assert all("Mergify" not in line for line in result.stdout.lines)
+
+
+def test_no_token(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
+    result, spans = pytester_with_spans()
+    assert spans is not None
     assert (
         "No token configured for Mergify; test results will not be uploaded"
         in result.stdout.lines
@@ -71,21 +72,17 @@ def test_repo_name_github_actions(
     assert plugin.mergify_tracer.repo_name == "Mergifyio/pytest-mergify"
 
 
-def test_with_token_no_ci_provider(
-    pytester: Pytester,
-    monkeypatch: pytest.MonkeyPatch,
+def test_with_token_no_repo(
+    pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
-    monkeypatch.setenv("MERGIFY_TOKEN", "x")
-    monkeypatch.setenv("CI", "1")
-    monkeypatch.setenv("GITHUB_ACTIONS", "false")
-    pytester.makepyfile(
-        """
-        def test_foo():
-            assert True
-        """
+    result, spans = pytester_with_spans(
+        setenv={
+            "GITHUB_ACTIONS": "true",
+            "MERGIFY_TOKEN": "x",
+            "_PYTEST_MERGIFY_TEST": "false",
+            "GITHUB_REPOSITORY": None,
+        }
     )
-    result = pytester.runpytest_subprocess()
-    result.assert_outcomes(passed=1)
     assert (
         "Unable to determine repository name; test results will not be uploaded"
         in result.stdout.lines

@@ -28,6 +28,10 @@ class PytestMergify:
     def pytest_terminal_summary(
         self, terminalreporter: _pytest.terminal.TerminalReporter
     ) -> None:
+        # No CI, nothing to do
+        if not utils.is_in_ci():
+            return
+
         terminalreporter.section("Mergify CI")
 
         # Make sure we shutdown and flush traces before existing: this makes

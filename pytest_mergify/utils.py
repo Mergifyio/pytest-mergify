@@ -11,6 +11,10 @@ SUPPORTED_CIs: typing.Dict[str, CIProviderT] = {
 }
 
 
+def is_in_ci() -> bool:
+    return strtobool(os.environ.get("CI", "false"))
+
+
 def get_ci_provider() -> typing.Optional[CIProviderT]:
     for envvar, name in SUPPORTED_CIs.items():
         if envvar in os.environ and strtobool(os.environ[envvar]):
