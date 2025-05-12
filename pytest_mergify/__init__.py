@@ -46,10 +46,9 @@ class PytestMergify:
                     red=True,
                 )
             else:
-                if utils.get_ci_provider() == "github_actions":
-                    terminalreporter.write_line(
-                        f"::notice title=Mergify CI::MERGIFY_TEST_RUN_ID={self.mergify_tracer.test_run_id}",
-                    )
+                terminalreporter.write_line(
+                    f"MERGIFY_TEST_RUN_ID={self.mergify_tracer.test_run_id}",
+                )
 
             try:
                 self.mergify_tracer.tracer_provider.shutdown()
