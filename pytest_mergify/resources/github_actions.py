@@ -27,6 +27,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
         return os.getenv("GITHUB_SHA")
 
     OPENTELEMETRY_GHA_MAPPING = {
+        cicd_attributes.CICD_PIPELINE_NAME: (str, "GITHUB_WORKFLOW"),
         cicd_attributes.CICD_PIPELINE_TASK_NAME: (str, "GITHUB_JOB"),
         cicd_attributes.CICD_PIPELINE_RUN_ID: (int, "GITHUB_RUN_ID"),
         "cicd.pipeline.run.attempt": (int, "GITHUB_RUN_ATTEMPT"),
