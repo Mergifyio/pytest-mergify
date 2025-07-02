@@ -1,5 +1,9 @@
 import typing
 
+import os
+import sys
+from collections.abc import Mapping
+import platform
 import pytest
 import _pytest.main
 import _pytest.runner
@@ -115,9 +119,28 @@ class PytestMergify:
             elif (skipif_marker := item.get_closest_marker("skipif")) is not None:
                 condition = skipif_marker.args[0]
                 if isinstance(condition, str):
-                    # Evaluate the condition in the test module's global namespace.
+                    globals_ = {
+                        "os": os,
+                        "sys": sys,
+                        "platform": platform,
+                        "config": item.config,
+                    }
+
+                    if hasattr(item, "ihook"):
+                        for dictionary in reversed(
+                            item.ihook.pytest_markeval_namespace(config=item.config)
+                        ):
+                            if not isinstance(dictionary, Mapping):
+                                raise ValueError(
+                                    f"pytest_markeval_namespace() needs to return a dict, got {dictionary!r}"
+                                )
+                            globals_.update(dictionary)
+                    if hasattr(item, "obj"):
+                        globals_.update(item.obj.__globals__)
+                    filename = f"<{skipif_marker.name} condition>"
+                    condition_code = compile(condition, filename, "eval")
                     # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
-                    skip = eval(condition, item.module.__dict__)  # type: ignore[attr-defined]
+                    skip = eval(condition_code, globals_)
                 else:
                     skip = bool(condition)
             else:

@@ -121,6 +121,7 @@ def test_skipped():
         "skipif(True, reason='not needed')",
         "skipif(1 + 1, reason='with eval')",
         "skipif('1 + 1', reason='as str')",
+        "skipif('sys.version_info.major > 1', reason='not needed')",
     ],
 )
 def test_mark_skipped(
