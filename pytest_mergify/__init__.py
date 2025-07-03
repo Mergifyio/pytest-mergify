@@ -119,6 +119,8 @@ class PytestMergify:
             elif (skipif_marker := item.get_closest_marker("skipif")) is not None:
                 condition = skipif_marker.args[0]
                 if isinstance(condition, str):
+                    #  Mimics how pytest evaluate the conditions
+                    # https://github.com/pytest-dev/pytest/blob/c5a75f2498c86850c4ce13bcf10d56efc92394a4/src/_pytest/skipping.py#L88
                     globals_ = {
                         "os": os,
                         "sys": sys,
