@@ -18,10 +18,13 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: |
+            3.13
+            ${{ matrix.python-version }}
       - run: |
           # nosemgrep: generic.ci.security.use-frozen-lockfile.use-frozen-lockfile-pip
-          pip install -r requirements-poetry.txt
+          python3.13 -m pip install -r requirements-poetry.txt
+          poetry env use ${{ matrix.python-version }}
           poetry install --sync
           poetry run poe linters
           poetry run poe test
