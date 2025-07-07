@@ -21,6 +21,18 @@ def test_no_ci(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
     assert all("Mergify" not in line for line in result.stdout.lines)
 
 
+@pytest.mark.parametrize("env", ("PYTEST_MERGIFY_ENABLED", "CI"))
+def test_enabled(
+    env: str,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    result, spans = pytester_with_spans(setenv={env: "true"})
+    assert spans is not None
+    assert any("Mergify CI" in line for line in result.stdout.lines)
+
+
 def test_no_token(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
     result, spans = pytester_with_spans()
     assert spans is not None
