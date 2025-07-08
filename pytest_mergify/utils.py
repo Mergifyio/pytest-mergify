@@ -12,7 +12,9 @@ SUPPORTED_CIs: typing.Dict[str, CIProviderT] = {
 
 
 def is_in_ci() -> bool:
-    return strtobool(os.environ.get("CI", "false"))
+    return strtobool(os.environ.get("CI", "false")) or strtobool(
+        os.environ.get("PYTEST_MERGIFY_ENABLE", "false")
+    )
 
 
 def get_ci_provider() -> typing.Optional[CIProviderT]:
