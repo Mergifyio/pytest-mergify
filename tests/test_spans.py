@@ -49,6 +49,7 @@ def test_test(
         "code.function": "test_pass",
         "code.lineno": 0,
         "code.filepath": "test_test.py",
+        "code.namespace": "",
         "test.case.result.status": "passed",
     }
     assert spans["test_pass"].status.status_code == opentelemetry.trace.StatusCode.OK
@@ -70,6 +71,7 @@ def test_test_failure(
         "code.function": "test_error",
         "code.lineno": 0,
         "code.filepath": "test_test_failure.py",
+        "code.namespace": "",
         SpanAttributes.EXCEPTION_TYPE: "<class 'AssertionError'>",
         SpanAttributes.EXCEPTION_MESSAGE: "foobar\nassert False",
         SpanAttributes.EXCEPTION_STACKTRACE: """>   def test_error(): assert False, 'foobar'
@@ -107,6 +109,7 @@ def test_skipped():
         "code.function": "test_skipped",
         "code.lineno": 1,
         "code.filepath": "test_test_skipped.py",
+        "code.namespace": "",
     }
     assert spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.OK
     assert session_span.context is not None
@@ -143,6 +146,7 @@ def test_skipped():
         "code.function": "test_skipped",
         "code.lineno": 1,
         "code.filepath": "test_mark_skipped.py",
+        "code.namespace": "",
     }
     assert (
         spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.UNSET
@@ -170,6 +174,7 @@ def test_not_skipped():
         "code.function": "test_not_skipped",
         "code.lineno": 1,
         "code.filepath": "test_mark_not_skipped.py",
+        "code.namespace": "",
     }
     assert (
         spans["test_not_skipped"].status.status_code
@@ -178,6 +183,24 @@ def test_not_skipped():
     assert session_span.context is not None
     assert spans["test_not_skipped"].parent is not None
     assert spans["test_not_skipped"].parent.span_id == session_span.context.span_id
+
+
+def test_span_attributes_namespace(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    result, spans = pytester_with_spans("""
+class TestClassBasic:
+    def test_namespace(self):
+        assert True
+
+def test_namespace():
+    assert True
+
+""")
+    assert spans is not None
+
+    assert "test_namespace" in spans
+    assert "TestClassBasic.test_namespace" in spans
 
 
 def test_span_resources_test_run_id(

@@ -12,6 +12,7 @@ import pytest_mergify
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from opentelemetry.sdk.trace import ReadableSpan
 
 pytest_plugins = ["pytester"]
 
@@ -59,11 +60,22 @@ def pytester_with_spans(
         plugin = pytest_mergify.PytestMergify()
         pytester.makepyfile(code)
         result = pytester.runpytest_inprocess(plugins=[plugin])
+
+        spans_as_dict: typing.Optional[typing.Dict[str, ReadableSpan]]
         if code is _DEFAULT_PYTESTER_CODE:
             result.assert_outcomes(passed=1)
         if isinstance(plugin.mergify_tracer.exporter, InMemorySpanExporter):
             spans = plugin.mergify_tracer.exporter.get_finished_spans()
-            spans_as_dict = {s.name: s for s in spans}
+            spans_as_dict = {}
+            for span in spans:
+                if not span.attributes or not span.attributes.get("code.namespace"):
+                    span_name = span.name
+                else:
+                    code_namespace = span.attributes["code.namespace"]
+                    span_name = f"{code_namespace}.{span.name}"
+
+                spans_as_dict[span_name] = span
+
             # Make sure we don't lose spans in the process
             assert len(spans_as_dict) == len(spans)
         else:
