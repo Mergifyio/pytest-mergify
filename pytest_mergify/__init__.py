@@ -10,6 +10,7 @@ import _pytest.runner
 import _pytest.reports
 import _pytest.config
 import _pytest.config.argparsing
+import _pytest.pathlib
 import _pytest.nodes
 import _pytest.terminal
 import opentelemetry.trace
@@ -106,11 +107,15 @@ class PytestMergify:
         namespace = testname.replace(item.name, "")
         if namespace.endswith("."):
             namespace = namespace[:-1]
+
         return {
             SpanAttributes.CODE_FILEPATH: filepath,
             SpanAttributes.CODE_FUNCTION: item.name,
             SpanAttributes.CODE_LINENO: line_number or 0,
             SpanAttributes.CODE_NAMESPACE: namespace,
+            "code.function.name": item.nodeid,
+            "code.file.path": str(_pytest.pathlib.absolutepath(item.reportinfo()[0])),
+            "code.line.number": line_number or 0,
         }
 
     @pytest.hookimpl(hookwrapper=True)

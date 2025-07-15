@@ -1,4 +1,5 @@
 import opentelemetry.trace
+import anys
 from opentelemetry.semconv.trace import SpanAttributes
 
 import pytest
@@ -51,6 +52,9 @@ def test_test(
         "code.filepath": "test_test.py",
         "code.namespace": "",
         "test.case.result.status": "passed",
+        "code.file.path": anys.ANY_STR,
+        "code.function.name": "test_test.py::test_pass",
+        "code.line.number": 0,
     }
     assert spans["test_pass"].status.status_code == opentelemetry.trace.StatusCode.OK
     assert session_span.context is not None
@@ -79,6 +83,9 @@ E   AssertionError: foobar
 E   assert False
 
 test_test_failure.py:1: AssertionError""",
+        "code.file.path": anys.ANY_STR,
+        "code.function.name": "test_test_failure.py::test_error",
+        "code.line.number": 0,
     }
     assert (
         spans["test_error"].status.status_code == opentelemetry.trace.StatusCode.ERROR
@@ -110,6 +117,9 @@ def test_skipped():
         "code.lineno": 1,
         "code.filepath": "test_test_skipped.py",
         "code.namespace": "",
+        "code.file.path": anys.ANY_STR,
+        "code.function.name": "test_test_skipped.py::test_skipped",
+        "code.line.number": 1,
     }
     assert spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.OK
     assert session_span.context is not None
@@ -147,6 +157,9 @@ def test_skipped():
         "code.lineno": 1,
         "code.filepath": "test_mark_skipped.py",
         "code.namespace": "",
+        "code.file.path": anys.ANY_STR,
+        "code.function.name": "test_mark_skipped.py::test_skipped",
+        "code.line.number": 1,
     }
     assert (
         spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.UNSET
@@ -175,6 +188,9 @@ def test_not_skipped():
         "code.lineno": 1,
         "code.filepath": "test_mark_not_skipped.py",
         "code.namespace": "",
+        "code.file.path": anys.ANY_STR,
+        "code.function.name": "test_mark_not_skipped.py::test_not_skipped",
+        "code.line.number": 1,
     }
     assert (
         spans["test_not_skipped"].status.status_code
