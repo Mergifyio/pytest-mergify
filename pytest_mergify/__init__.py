@@ -102,11 +102,15 @@ class PytestMergify:
     def _attributes_from_item(
         self, item: _pytest.nodes.Item
     ) -> typing.Dict[str, typing.Union[str, int]]:
-        filepath, line_number, _ = item.location
+        filepath, line_number, testname = item.location
+        namespace = testname.replace(item.name, "")
+        if namespace.endswith("."):
+            namespace = namespace[:-1]
         return {
             SpanAttributes.CODE_FILEPATH: filepath,
             SpanAttributes.CODE_FUNCTION: item.name,
             SpanAttributes.CODE_LINENO: line_number or 0,
+            SpanAttributes.CODE_NAMESPACE: namespace,
         }
 
     @pytest.hookimpl(hookwrapper=True)
