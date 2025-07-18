@@ -14,7 +14,7 @@ def test_span(
     assert spans is not None
     assert set(spans.keys()) == {
         "pytest session start",
-        "test_pass",
+        "test_span.py::test_pass",
     }
 
 
@@ -45,7 +45,7 @@ def test_test(
     assert spans is not None
     session_span = spans["pytest session start"]
 
-    assert spans["test_pass"].attributes == {
+    assert spans["test_test.py::test_pass"].attributes == {
         "test.scope": "case",
         "code.function": "test_pass",
         "code.lineno": 0,
@@ -56,10 +56,15 @@ def test_test(
         "code.function.name": "test_test.py::test_pass",
         "code.line.number": 0,
     }
-    assert spans["test_pass"].status.status_code == opentelemetry.trace.StatusCode.OK
+    assert (
+        spans["test_test.py::test_pass"].status.status_code
+        == opentelemetry.trace.StatusCode.OK
+    )
     assert session_span.context is not None
-    assert spans["test_pass"].parent is not None
-    assert spans["test_pass"].parent.span_id == session_span.context.span_id
+    assert spans["test_test.py::test_pass"].parent is not None
+    assert (
+        spans["test_test.py::test_pass"].parent.span_id == session_span.context.span_id
+    )
 
 
 def test_test_failure(
@@ -69,7 +74,7 @@ def test_test_failure(
     assert spans is not None
     session_span = spans["pytest session start"]
 
-    assert spans["test_error"].attributes == {
+    assert spans["test_test_failure.py::test_error"].attributes == {
         "test.case.result.status": "failed",
         "test.scope": "case",
         "code.function": "test_error",
@@ -88,15 +93,19 @@ test_test_failure.py:1: AssertionError""",
         "code.line.number": 0,
     }
     assert (
-        spans["test_error"].status.status_code == opentelemetry.trace.StatusCode.ERROR
+        spans["test_test_failure.py::test_error"].status.status_code
+        == opentelemetry.trace.StatusCode.ERROR
     )
     assert (
-        spans["test_error"].status.description
+        spans["test_test_failure.py::test_error"].status.description
         == "<class 'AssertionError'>: foobar\nassert False"
     )
     assert session_span.context is not None
-    assert spans["test_error"].parent is not None
-    assert spans["test_error"].parent.span_id == session_span.context.span_id
+    assert spans["test_test_failure.py::test_error"].parent is not None
+    assert (
+        spans["test_test_failure.py::test_error"].parent.span_id
+        == session_span.context.span_id
+    )
 
 
 def test_test_skipped(
@@ -110,7 +119,7 @@ def test_skipped():
     assert spans is not None
     session_span = spans["pytest session start"]
 
-    assert spans["test_skipped"].attributes == {
+    assert spans["test_test_skipped.py::test_skipped"].attributes == {
         "test.case.result.status": "skipped",
         "test.scope": "case",
         "code.function": "test_skipped",
@@ -121,10 +130,16 @@ def test_skipped():
         "code.function.name": "test_test_skipped.py::test_skipped",
         "code.line.number": 1,
     }
-    assert spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.OK
+    assert (
+        spans["test_test_skipped.py::test_skipped"].status.status_code
+        == opentelemetry.trace.StatusCode.OK
+    )
     assert session_span.context is not None
-    assert spans["test_skipped"].parent is not None
-    assert spans["test_skipped"].parent.span_id == session_span.context.span_id
+    assert spans["test_test_skipped.py::test_skipped"].parent is not None
+    assert (
+        spans["test_test_skipped.py::test_skipped"].parent.span_id
+        == session_span.context.span_id
+    )
 
 
 @pytest.mark.parametrize(
@@ -150,7 +165,7 @@ def test_skipped():
     assert spans is not None
     session_span = spans["pytest session start"]
 
-    assert spans["test_skipped"].attributes == {
+    assert spans["test_mark_skipped.py::test_skipped"].attributes == {
         "test.case.result.status": "skipped",
         "test.scope": "case",
         "code.function": "test_skipped",
@@ -162,11 +177,15 @@ def test_skipped():
         "code.line.number": 1,
     }
     assert (
-        spans["test_skipped"].status.status_code == opentelemetry.trace.StatusCode.UNSET
+        spans["test_mark_skipped.py::test_skipped"].status.status_code
+        == opentelemetry.trace.StatusCode.UNSET
     )
     assert session_span.context is not None
-    assert spans["test_skipped"].parent is not None
-    assert spans["test_skipped"].parent.span_id == session_span.context.span_id
+    assert spans["test_mark_skipped.py::test_skipped"].parent is not None
+    assert (
+        spans["test_mark_skipped.py::test_skipped"].parent.span_id
+        == session_span.context.span_id
+    )
 
 
 def test_mark_not_skipped(
@@ -181,7 +200,7 @@ def test_not_skipped():
     assert spans is not None
     session_span = spans["pytest session start"]
 
-    assert spans["test_not_skipped"].attributes == {
+    assert spans["test_mark_not_skipped.py::test_not_skipped"].attributes == {
         "test.case.result.status": "passed",
         "test.scope": "case",
         "code.function": "test_not_skipped",
@@ -193,18 +212,23 @@ def test_not_skipped():
         "code.line.number": 1,
     }
     assert (
-        spans["test_not_skipped"].status.status_code
+        spans["test_mark_not_skipped.py::test_not_skipped"].status.status_code
         == opentelemetry.trace.StatusCode.OK
     )
     assert session_span.context is not None
-    assert spans["test_not_skipped"].parent is not None
-    assert spans["test_not_skipped"].parent.span_id == session_span.context.span_id
+    assert spans["test_mark_not_skipped.py::test_not_skipped"].parent is not None
+    assert (
+        spans["test_mark_not_skipped.py::test_not_skipped"].parent.span_id
+        == session_span.context.span_id
+    )
 
 
 def test_span_attributes_namespace(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans("""
+import pytest
+
 class TestClassBasic:
     def test_namespace(self):
         assert True
@@ -212,11 +236,17 @@ class TestClassBasic:
 def test_namespace():
     assert True
 
+
+@pytest.mark.parametrize("hello", ["foo", "bar"])
+def test_parametrized(hello):
+    assert True
 """)
     assert spans is not None
 
-    assert "test_namespace" in spans
-    assert "TestClassBasic.test_namespace" in spans
+    assert "test_span_attributes_namespace.py::test_namespace" in spans
+    assert "test_span_attributes_namespace.py::TestClassBasic::test_namespace" in spans
+    assert "test_span_attributes_namespace.py::test_parametrized[foo]" in spans
+    assert "test_span_attributes_namespace.py::test_parametrized[bar]" in spans
 
 
 def test_span_resources_test_run_id(
