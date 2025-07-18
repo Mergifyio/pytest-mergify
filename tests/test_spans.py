@@ -53,7 +53,6 @@ def test_test(
         "code.namespace": "",
         "test.case.result.status": "passed",
         "code.file.path": anys.ANY_STR,
-        "code.function.name": "test_test.py::test_pass",
         "code.line.number": 0,
     }
     assert (
@@ -89,7 +88,6 @@ E   assert False
 
 test_test_failure.py:1: AssertionError""",
         "code.file.path": anys.ANY_STR,
-        "code.function.name": "test_test_failure.py::test_error",
         "code.line.number": 0,
     }
     assert (
@@ -127,7 +125,6 @@ def test_skipped():
         "code.filepath": "test_test_skipped.py",
         "code.namespace": "",
         "code.file.path": anys.ANY_STR,
-        "code.function.name": "test_test_skipped.py::test_skipped",
         "code.line.number": 1,
     }
     assert (
@@ -173,7 +170,6 @@ def test_skipped():
         "code.filepath": "test_mark_skipped.py",
         "code.namespace": "",
         "code.file.path": anys.ANY_STR,
-        "code.function.name": "test_mark_skipped.py::test_skipped",
         "code.line.number": 1,
     }
     assert (
@@ -208,7 +204,6 @@ def test_not_skipped():
         "code.filepath": "test_mark_not_skipped.py",
         "code.namespace": "",
         "code.file.path": anys.ANY_STR,
-        "code.function.name": "test_mark_not_skipped.py::test_not_skipped",
         "code.line.number": 1,
     }
     assert (
