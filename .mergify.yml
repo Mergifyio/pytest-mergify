@@ -39,7 +39,7 @@ merge_protections:
     if:
       - author != dependabot[bot]
     success_conditions:
-      - "#approved-reviews-by >= 1"
+      - "#approved-reviews-by >= 2"
 
   - name: Continuous Integration
     if: []
