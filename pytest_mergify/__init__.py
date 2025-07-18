@@ -113,7 +113,6 @@ class PytestMergify:
             SpanAttributes.CODE_FUNCTION: item.name,
             SpanAttributes.CODE_LINENO: line_number or 0,
             SpanAttributes.CODE_NAMESPACE: namespace,
-            "code.function.name": item.nodeid,
             "code.file.path": str(_pytest.pathlib.absolutepath(item.reportinfo()[0])),
             "code.line.number": line_number or 0,
         }
