@@ -66,16 +66,7 @@ def pytester_with_spans(
             result.assert_outcomes(passed=1)
         if isinstance(plugin.mergify_tracer.exporter, InMemorySpanExporter):
             spans = plugin.mergify_tracer.exporter.get_finished_spans()
-            spans_as_dict = {}
-            for span in spans:
-                if not span.attributes or not span.attributes.get("code.namespace"):
-                    span_name = span.name
-                else:
-                    code_namespace = span.attributes["code.namespace"]
-                    span_name = f"{code_namespace}.{span.name}"
-
-                spans_as_dict[span_name] = span
-
+            spans_as_dict = {span.name: span for span in spans}
             # Make sure we don't lose spans in the process
             assert len(spans_as_dict) == len(spans)
         else:

@@ -164,7 +164,7 @@ class PytestMergify:
 
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
-                item.name,
+                item.nodeid,
                 attributes={
                     **self._attributes_from_item(item),
                     **skip_attributes,
