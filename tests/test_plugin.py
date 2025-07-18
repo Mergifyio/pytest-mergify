@@ -33,9 +33,28 @@ def test_enabled(
     assert any("Mergify CI" in line for line in result.stdout.lines)
 
 
+def test_empty_token(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
+    result, spans = pytester_with_spans(
+        setenv={
+            "MERGIFY_TOKEN": "",
+            "_PYTEST_MERGIFY_TEST": None,
+        }
+    )
+    assert spans is None
+    assert (
+        "No token configured for Mergify; test results will not be uploaded"
+        in result.stdout.lines
+    )
+
+
 def test_no_token(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
-    result, spans = pytester_with_spans()
-    assert spans is not None
+    result, spans = pytester_with_spans(
+        setenv={
+            "MERGIFY_TOKEN": None,
+            "_PYTEST_MERGIFY_TEST": None,
+        }
+    )
+    assert spans is None
     assert (
         "No token configured for Mergify; test results will not be uploaded"
         in result.stdout.lines
@@ -82,6 +101,23 @@ def test_repo_name_github_actions(
     pytester.makepyfile("")
     pytester.runpytest_inprocess(plugins=[plugin])
     assert plugin.mergify_tracer.repo_name == "Mergifyio/pytest-mergify"
+
+
+def test_with_token_empty_repo(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    result, spans = pytester_with_spans(
+        setenv={
+            "GITHUB_ACTIONS": "true",
+            "MERGIFY_TOKEN": "x",
+            "_PYTEST_MERGIFY_TEST": "false",
+            "GITHUB_REPOSITORY": "",
+        }
+    )
+    assert (
+        "Unable to determine repository name; test results will not be uploaded"
+        in result.stdout.lines
+    )
 
 
 def test_with_token_no_repo(

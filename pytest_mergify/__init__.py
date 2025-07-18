@@ -39,43 +39,46 @@ class PytestMergify:
 
         terminalreporter.section("Mergify CI")
 
-        # Make sure we shutdown and flush traces before existing: this makes
-        # sure that we capture the possible error logs, otherwise they are
-        # emitted on exit (atexit()).
-        if self.mergify_tracer.tracer_provider is not None:
-            try:
-                self.mergify_tracer.tracer_provider.force_flush()
-            except Exception as e:
+        if self.mergify_tracer.tracer_provider is None:
+            if not self.mergify_tracer.token:
                 terminalreporter.write_line(
-                    f"Error while exporting traces: {e}",
+                    "No token configured for Mergify; test results will not be uploaded",
+                    yellow=True,
+                )
+                return
+
+            if not self.mergify_tracer.repo_name:
+                terminalreporter.write_line(
+                    "Unable to determine repository name; test results will not be uploaded",
                     red=True,
                 )
-            else:
-                terminalreporter.write_line(
-                    f"MERGIFY_TEST_RUN_ID={self.mergify_tracer.test_run_id}",
-                )
+                return
 
-            try:
-                self.mergify_tracer.tracer_provider.shutdown()
-            except Exception as e:
-                terminalreporter.write_line(
-                    f"Error while shutting down the tracer: {e}",
-                    red=True,
-                )
-
-        if self.mergify_tracer.token is None:
             terminalreporter.write_line(
-                "No token configured for Mergify; test results will not be uploaded",
-                yellow=True,
-            )
-            return
-
-        if self.mergify_tracer.repo_name is None:
-            terminalreporter.write_line(
-                "Unable to determine repository name; test results will not be uploaded",
+                "Mergify Tracer didn't start for unexpected reason (Please contact Mergify support); test results will not be uploaded",
                 red=True,
             )
             return
+
+        try:
+            self.mergify_tracer.tracer_provider.force_flush()
+        except Exception as e:
+            terminalreporter.write_line(
+                f"Error while exporting traces: {e}",
+                red=True,
+            )
+        else:
+            terminalreporter.write_line(
+                f"MERGIFY_TEST_RUN_ID={self.mergify_tracer.test_run_id}",
+            )
+
+        try:
+            self.mergify_tracer.tracer_provider.shutdown()
+        except Exception as e:
+            terminalreporter.write_line(
+                f"Error while shutting down the tracer: {e}",
+                red=True,
+            )
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
