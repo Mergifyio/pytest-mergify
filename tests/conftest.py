@@ -1,13 +1,18 @@
 import typing
+import re
+import os
+import responses
 import http.server
 import socketserver
 import threading
 
 import pytest
+from pytest_mergify import utils
 import _pytest.pytester
 from opentelemetry.sdk import trace
 
 import pytest_mergify
+import pytest_mergify.quarantine
 
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
@@ -35,6 +40,7 @@ class PytesterWithSpanT(typing.Protocol):
         self,
         code: str = ...,
         setenv: typing.Optional[typing.Dict[str, typing.Optional[str]]] = ...,
+        quarantined_tests: typing.Optional[typing.List[str]] = None,
     ) -> PytesterWithSpanReturnT: ...
 
 
@@ -43,20 +49,41 @@ _DEFAULT_PYTESTER_CODE = "def test_pass(): pass"
 
 @pytest.fixture
 def pytester_with_spans(
-    pytester: _pytest.pytester.Pytester, monkeypatch: pytest.MonkeyPatch
+    pytester: _pytest.pytester.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> PytesterWithSpanT:
+    @responses.activate
     def _run(
         code: str = _DEFAULT_PYTESTER_CODE,
         setenv: typing.Optional[typing.Dict[str, typing.Optional[str]]] = None,
+        quarantined_tests: typing.Optional[typing.List[str]] = None,
     ) -> PytesterWithSpanReturnT:
         monkeypatch.delenv("PYTEST_MERGIFY_DEBUG", raising=False)
         monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
+
         for k, v in (setenv or {}).items():
             if v is None:
                 monkeypatch.delenv(k, raising=False)
             else:
                 monkeypatch.setenv(k, v)
+
+        api_url = os.getenv("MERGIFY_API_URL")
+        responses.add(
+            responses.GET,
+            re.compile(rf"{api_url}/v1/ci/.*/repositories/.*/quarantines\?branch=.*"),
+            status=200,
+            json={"quarantined_tests": quarantined_tests or []},
+        )
+
+        full_repository = utils.get_repository_name()
+        passthrough = responses.Response(
+            responses.POST,
+            f"{api_url}/v1/repos/{full_repository}/ci/traces",
+            passthrough=True,
+        )
+        responses.add(passthrough)
+
         plugin = pytest_mergify.PytestMergify()
         pytester.makepyfile(code)
         result = pytester.runpytest_inprocess(plugins=[plugin])
