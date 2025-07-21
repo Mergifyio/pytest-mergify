@@ -3,7 +3,7 @@ import os
 import random
 import typing
 
-import requests  # type: ignore[import-untyped]
+import requests
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
 from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan

@@ -47,6 +47,15 @@ def _get_repository_name_from_env_url(env: str) -> typing.Optional[str]:
     return None
 
 
+def get_branch_name_for_quarantine() -> typing.Optional[str]:
+    for env_var in ("GITHUB_BASE_REF", "MERGIFY_TESTS_TARGET_BRANCH", "GITHUB_REF"):
+        env_val = os.getenv(env_var)
+        if env_val is not None:
+            return env_val
+
+    return None
+
+
 def get_repository_name() -> typing.Optional[str]:
     provider = get_ci_provider()
 

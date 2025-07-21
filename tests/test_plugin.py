@@ -111,7 +111,7 @@ def test_with_token_empty_repo(
             "GITHUB_ACTIONS": "true",
             "MERGIFY_TOKEN": "x",
             "_PYTEST_MERGIFY_TEST": "false",
-            "GITHUB_REPOSITORY": "",
+            "GITHUB_REPOSITORY": None,
         }
     )
     assert (
@@ -147,6 +147,7 @@ def test_errors_logs(
     monkeypatch.setenv("CI", "1")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_REPOSITORY", "foo/bar")
+    monkeypatch.setenv("GITHUB_REF", "main")
     pytester.makepyfile(
         """
         def test_pass():
@@ -180,6 +181,7 @@ def test_errors_logs_403(
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_REPOSITORY", "foo/bar")
     monkeypatch.setenv("MERGIFY_API_URL", http_server)
+    monkeypatch.setenv("GITHUB_BASE_REF", "main")
     pytester.makepyfile(
         """
         def test_pass():
