@@ -76,3 +76,39 @@ def test_span_github_actions(
         span.resource.attributes["cicd.pipeline.runner.name"] == "self-hosted"
         for span in spans.values()
     )
+
+
+def test_span_jenkins(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    monkeypatch.setenv("JENKINS_URL", "https://jenkins.example.com")
+    monkeypatch.setenv(
+        "BUILD_URL", "https://jenkins.example.com/Mergifyio/pytest-mergify"
+    )
+    monkeypatch.setenv("BUILD_ID", "jenkins-job-name#5")
+    monkeypatch.setenv("JOB_NAME", "jenkins-job-name")
+    monkeypatch.setenv("GIT_URL", "https://github.com/Mergifyio/pytest-mergify")
+    monkeypatch.setenv("GIT_BRANCH", "main")
+    monkeypatch.setenv("GIT_COMMIT", "1860cf377dd5610e256ff52e47cf38816cc04549")
+    monkeypatch.setenv("NODE_NAME", "self-hosted")
+    result, spans = pytester_with_spans()
+    assert spans is not None
+    assert all(
+        span.resource.attributes["vcs.repository.name"] == "Mergifyio/pytest-mergify"
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["vcs.repository.url.full"]
+        == "https://github.com/Mergifyio/pytest-mergify"
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["cicd.pipeline.run.id"] == "jenkins-job-name#5"
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["cicd.pipeline.runner.name"] == "self-hosted"
+        for span in spans.values()
+    )

@@ -18,6 +18,7 @@ import pytest_mergify.resources.ci as resources_ci
 import pytest_mergify.resources.github_actions as resources_gha
 import pytest_mergify.resources.pytest as resources_pytest
 import pytest_mergify.resources.mergify as resources_mergify
+import pytest_mergify.resources.jenkins as resources_jenkins
 
 
 class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
@@ -103,6 +104,7 @@ class MergifyTracer:
             [
                 resources_ci.CIResourceDetector(),
                 resources_gha.GitHubActionsResourceDetector(),
+                resources_jenkins.JenkinsResourceDetector(),
                 resources_pytest.PytestResourceDetector(),
                 resources_mergify.MergifyResourceDetector(),
             ]
