@@ -7,7 +7,7 @@ license = "GPL-3.0-only"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.9"
+python = ">=3.8"
 # We set this version explicitly to avoid breaking changes
 opentelemetry-exporter-otlp-proto-http = ">=1.25"
 opentelemetry-sdk = ">=1.25"
@@ -22,7 +22,6 @@ poethepoet = ">=0.30"
 codespell = "^2.3.0"
 yamllint = "^1.35.1"
 anys = "^0.3.1"
-types-requests = "^2.32.4.20250611"
 
 [build-system]
 requires = ["poetry-core", "poetry-dynamic-versioning"]
@@ -41,7 +40,7 @@ files = ["pytest_mergify", "tests"]
 show_error_codes = true
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py38"
 
 [[tool.mypy.overrides]]
 module = [
