@@ -3,7 +3,7 @@ import os
 import random
 import typing
 
-import requests
+import requests  # type: ignore[import-untyped]
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
 from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan
@@ -37,7 +37,7 @@ class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
         self.queue.append(span)
 
 
-class SessionHardRaiser(requests.Session):
+class SessionHardRaiser(requests.Session):  # type: ignore[misc]
     """Custom requests.Session that raises an exception on HTTP error."""
 
     def request(self, *args: typing.Any, **kwargs: typing.Any) -> requests.Response:
