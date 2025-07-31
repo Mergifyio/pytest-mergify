@@ -18,7 +18,7 @@ def test_span(
     }
 
 
-def test_session(
+def test_session_without_traceparent(
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
     result, spans = pytester_with_spans()
@@ -26,6 +26,26 @@ def test_session(
     s = spans["pytest session start"]
     assert s.attributes == {"test.scope": "session"}
     assert s.status.status_code == opentelemetry.trace.StatusCode.OK
+    assert s.parent is None
+
+
+def test_session_with_traceparent(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "MERGIFY_TRACEPARENT", "00-80e1afed08e019fc1110464cfa66635c-7a085853722dc6d2-01"
+    )
+
+    result, spans = pytester_with_spans()
+    assert spans is not None
+    s = spans["pytest session start"]
+    assert s.attributes == {"test.scope": "session"}
+    assert s.status.status_code == opentelemetry.trace.StatusCode.OK
+    assert s.parent is not None
+    assert s.context.trace_id == 0x80E1AFED08E019FC1110464CFA66635C
+    assert s.parent.trace_id == 0x80E1AFED08E019FC1110464CFA66635C
+    assert s.parent.span_id == 0x7A085853722DC6D2
 
 
 def test_session_fail(
