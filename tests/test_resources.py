@@ -1,12 +1,11 @@
 import re
 import typing
+from unittest import mock
 
 import pytest
 
-
-from tests import conftest
-
 from pytest_mergify import utils
+from tests import conftest
 
 
 def test_span_resources_attributes_ci(
@@ -78,7 +77,9 @@ def test_span_github_actions(
     )
 
 
+@mock.patch("pytest_mergify.utils.git", return_value=None)
 def test_span_jenkins(
+    git: mock.Mock,
     monkeypatch: pytest.MonkeyPatch,
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
@@ -110,5 +111,42 @@ def test_span_jenkins(
     )
     assert all(
         span.resource.attributes["cicd.pipeline.runner.name"] == "self-hosted"
+        for span in spans.values()
+    )
+
+
+@mock.patch("pytest_mergify.utils.git", return_value=None)
+def test_span_git(
+    git: mock.Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    git.side_effect = [
+        "https://github.com/Mergifyio/pytest-mergify",
+        "main",
+        "azerty",
+        "https://github.com/Mergifyio/pytest-mergify",
+        "main",
+        "azerty",
+        "https://github.com/Mergifyio/pytest-mergify",
+        "main",
+        "azerty",
+        "https://github.com/Mergifyio/pytest-mergify",
+    ]
+
+    result, spans = pytester_with_spans()
+    assert spans is not None
+    assert all(
+        span.resource.attributes["vcs.repository.url.full"]
+        == "https://github.com/Mergifyio/pytest-mergify"
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["vcs.ref.head.name"] == "main"
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["vcs.ref.head.revision"] == "azerty"
         for span in spans.values()
     )
