@@ -1,27 +1,26 @@
 import dataclasses
-import _pytest.nodes
-import random
 import os
+import random
 import typing
 
-import requests
+import _pytest.nodes
 import opentelemetry.sdk.resources
-from opentelemetry.sdk.trace import export
-from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan
+import requests
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter,
 )
-
-from pytest_mergify import utils
-import pytest_mergify.quarantine
-
-import pytest_mergify.resources.ci as resources_ci
+from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor, TracerProvider, export
 from opentelemetry.semconv._incubating.attributes import vcs_attributes
+
+import pytest_mergify.quarantine
+import pytest_mergify.resources.ci as resources_ci
+import pytest_mergify.resources.git as resources_git
 import pytest_mergify.resources.github_actions as resources_gha
-import pytest_mergify.resources.pytest as resources_pytest
-import pytest_mergify.resources.mergify as resources_mergify
 import pytest_mergify.resources.jenkins as resources_jenkins
+import pytest_mergify.resources.mergify as resources_mergify
+import pytest_mergify.resources.pytest as resources_pytest
+from pytest_mergify import utils
 
 
 class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
@@ -116,6 +115,7 @@ class MergifyCIInsights:
 
         resource = opentelemetry.sdk.resources.get_aggregated_resources(
             [
+                resources_git.GitResourceDetector(),
                 resources_ci.CIResourceDetector(),
                 resources_gha.GitHubActionsResourceDetector(),
                 resources_jenkins.JenkinsResourceDetector(),

@@ -5,6 +5,7 @@ from opentelemetry.sdk.resources import Resource, ResourceDetector
 from opentelemetry.semconv._incubating.attributes import cicd_attributes, vcs_attributes
 
 from pytest_mergify import utils
+from pytest_mergify.resources import git
 
 GIT_BRANCH_PREFIXES = ("origin/", "refs/heads/")
 
@@ -44,5 +45,9 @@ class JenkinsResourceDetector(ResourceDetector):
         if utils.get_ci_provider() != "jenkins":
             return Resource({})
 
-        attributes = utils.get_attributes(self.OPENTELEMETRY_JENKINS_MAPPING)
+        attributes = utils.get_attributes(
+            git.GitResourceDetector.OPENTELEMETRY_GIT_MAPPING
+        )
+        attributes.update(utils.get_attributes(self.OPENTELEMETRY_JENKINS_MAPPING))
+
         return Resource(attributes)
