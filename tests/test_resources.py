@@ -90,7 +90,7 @@ def test_span_jenkins(
     monkeypatch.setenv("BUILD_ID", "jenkins-job-name#5")
     monkeypatch.setenv("JOB_NAME", "jenkins-job-name")
     monkeypatch.setenv("GIT_URL", "https://github.com/Mergifyio/pytest-mergify")
-    monkeypatch.setenv("GIT_BRANCH", "main")
+    monkeypatch.setenv("GIT_BRANCH", "origin/main")
     monkeypatch.setenv("GIT_COMMIT", "1860cf377dd5610e256ff52e47cf38816cc04549")
     monkeypatch.setenv("NODE_NAME", "self-hosted")
     result, spans = pytester_with_spans()
