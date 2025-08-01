@@ -34,7 +34,7 @@ def get_ci_provider() -> typing.Optional[CIProviderT]:
     return None
 
 
-def _get_repository_name_from_env_url(env: str) -> typing.Optional[str]:
+def get_repository_name_from_env_url(env: str) -> typing.Optional[str]:
     repository_url = os.getenv(env)
     if repository_url and (
         match := re.match(
@@ -51,13 +51,13 @@ def get_repository_name() -> typing.Optional[str]:
     provider = get_ci_provider()
 
     if provider == "jenkins":
-        return _get_repository_name_from_env_url("GIT_URL")
+        return get_repository_name_from_env_url("GIT_URL")
 
     if provider == "github_actions":
         return os.getenv("GITHUB_REPOSITORY")
 
     if provider == "circleci":
-        return _get_repository_name_from_env_url("CIRCLE_REPOSITORY_URL")
+        return get_repository_name_from_env_url("CIRCLE_REPOSITORY_URL")
 
     if provider == "pytest_mergify_suite":
         return "Mergifyio/pytest-mergify"
@@ -73,3 +73,27 @@ def strtobool(string: str) -> bool:
         return False
 
     raise ValueError(f"Could not convert '{string}' to boolean")
+
+
+# NOTE(sileht): Can't use NewType because python 3.8
+def get_attributes(
+    mapping: typing.Dict[
+        str,
+        # NOTE(sileht): does not work on py38
+        #   tuple[
+        #        type[typing.Union[str, int]],
+        #        typing.Union[str, typing.Callable[[], typing.Optional[str]]],
+        #    ],
+        typing.Any,
+    ],
+) -> typing.Dict[str, typing.Union[str, int]]:
+    attributes = {}
+    for attr, (cast, env_or_callable) in mapping.items():
+        value: typing.Optional[str]
+        if callable(env_or_callable):
+            value = env_or_callable()
+        else:
+            value = os.getenv(env_or_callable)
+        if value is not None:
+            attributes[attr] = cast(value)
+    return attributes
