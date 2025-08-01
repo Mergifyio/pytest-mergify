@@ -15,6 +15,7 @@ import _pytest.nodes
 import _pytest.terminal
 import opentelemetry.trace
 from opentelemetry.semconv.trace import SpanAttributes
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from pytest_mergify import utils
 from pytest_mergify.tracer import MergifyTracer
@@ -86,11 +87,18 @@ class PytestMergify:
 
     def pytest_sessionstart(self, session: _pytest.main.Session) -> None:
         if self.tracer:
+            traceparent = os.environ.get("MERGIFY_TRACEPARENT")
+            if traceparent:
+                ctx = TraceContextTextMapPropagator().extract(
+                    carrier={"traceparent": traceparent}
+                )
+
             self.session_span = self.tracer.start_span(
                 "pytest session start",
                 attributes={
                     "test.scope": "session",
                 },
+                context=ctx if traceparent else None,
             )
         self.has_error = False
 
