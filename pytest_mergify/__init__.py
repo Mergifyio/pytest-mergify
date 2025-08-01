@@ -1,4 +1,5 @@
 import typing
+import requests
 
 import os
 import sys
@@ -29,7 +30,10 @@ class PytestMergify:
         api_url = config.getoption("--mergify-api-url")
         if api_url is not None:
             kwargs["api_url"] = api_url
+
         self.mergify_tracer = MergifyTracer(**kwargs)
+        self.quarantine_warning_logs: typing.List[str] = []
+        self.quarantined_tests: typing.List[str] = []
 
     def pytest_terminal_summary(
         self, terminalreporter: _pytest.terminal.TerminalReporter
@@ -39,6 +43,10 @@ class PytestMergify:
             return
 
         terminalreporter.section("Mergify CI")
+
+        # First, we write warning messages from CI Insights Quarantine to output
+        for msg in self.quarantine_warning_logs:
+            terminalreporter.write_line(msg, yellow=True)
 
         if self.mergify_tracer.tracer_provider is None:
             if not self.mergify_tracer.token:
@@ -86,6 +94,8 @@ class PytestMergify:
         return self.mergify_tracer.tracer
 
     def pytest_sessionstart(self, session: _pytest.main.Session) -> None:
+        self.has_error = False
+
         if self.tracer:
             traceparent = os.environ.get("MERGIFY_TRACEPARENT")
             if traceparent:
@@ -100,7 +110,69 @@ class PytestMergify:
                 },
                 context=ctx if traceparent else None,
             )
-        self.has_error = False
+
+        self._setup_ci_insights_quarantine()
+
+    def _setup_ci_insights_quarantine(self) -> None:
+        if not utils.is_in_ci():
+            return
+
+        if self.mergify_tracer.token is None:
+            self.quarantine_warning_logs.append(
+                "A Mergify API token is required to use CI Insights Quarantine"
+            )
+            return
+
+        if self.mergify_tracer.repo_name is None:
+            self.quarantine_warning_logs.append(
+                "No valid repository name found, skipping CI Insights Quarantine setup"
+            )
+            return
+
+        # Query all the quarantined tests
+        try:
+            owner, repository = self.mergify_tracer.repo_name.split("/")
+        except ValueError:
+            self.quarantine_warning_logs.append(
+                f"Repository name '{self.mergify_tracer.repo_name}' has an unexpected format (expected 'owner/repository'), skipping CI Insights Quarantine setup"
+            )
+            return
+
+        branch_name = utils.get_branch_name_for_quarantine()
+        if branch_name is None:
+            self.quarantine_warning_logs.append(
+                "No valid branch name found, skipping CI Insights Quarantine setup",
+            )
+            return
+
+        url = f"{self.mergify_tracer.api_url}/v1/ci/{owner}/repositories/{repository}/quarantines"
+
+        try:
+            quarantine_resp: requests.Response = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {self.mergify_tracer.token}"},
+                params={"branch": branch_name},
+                timeout=10,
+            )
+        except requests.ConnectionError as exc:
+            self.quarantine_warning_logs.append(
+                f"Failed to connect to Mergify's API, tests won't be quarantined. Error: {str(exc)}"
+            )
+            return
+
+        if quarantine_resp.status_code == 402:
+            # No CI Insights Quarantine subscription, skip it.
+            return
+
+        try:
+            quarantine_resp.raise_for_status()
+        except requests.HTTPError as exc:
+            self.quarantine_warning_logs.append(
+                f"Error when querying Mergify's API, tests won't be quarantined. Error: {str(exc)}"
+            )
+            return
+
+        self.quarantined_tests = quarantine_resp.json()["quarantined_tests"]
 
     def pytest_sessionfinish(self, session: _pytest.main.Session) -> None:
         if self.tracer:
@@ -171,6 +243,20 @@ class PytestMergify:
                 skip_attributes = {"test.case.result.status": "skipped"}
             else:
                 skip_attributes = {}
+
+                if (
+                    item.nodeid in self.quarantined_tests
+                    and item.get_closest_marker("xfail") is None
+                ):
+                    item.add_marker(
+                        pytest.mark.xfail(
+                            reason="Test is quarantined from Mergify CI Insights",
+                            raises=None,
+                            run=True,
+                            strict=False,
+                        ),
+                        append=True,
+                    )
 
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
