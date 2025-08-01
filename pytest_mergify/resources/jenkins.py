@@ -9,6 +9,7 @@ class JenkinsResourceDetector(ResourceDetector):
 
     OPENTELEMETRY_JENKINS_MAPPING = {
         cicd_attributes.CICD_PIPELINE_NAME: (str, "JOB_NAME"),
+        cicd_attributes.CICD_PIPELINE_TASK_NAME: (str, "JOB_NAME"),
         cicd_attributes.CICD_PIPELINE_RUN_ID: (str, "BUILD_ID"),
         "cicd.pipeline.run.url": (str, "BUILD_URL"),
         "cicd.pipeline.runner.name": (str, "NODE_NAME"),
