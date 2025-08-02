@@ -3,22 +3,21 @@ import os
 import random
 import typing
 
-import requests  # type: ignore[import-untyped]
 import opentelemetry.sdk.resources
-from opentelemetry.sdk.trace import export
-from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan
+import requests  # type: ignore[import-untyped]
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter,
 )
-
-from pytest_mergify import utils
+from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor, TracerProvider, export
 
 import pytest_mergify.resources.ci as resources_ci
+import pytest_mergify.resources.git as resources_git
 import pytest_mergify.resources.github_actions as resources_gha
-import pytest_mergify.resources.pytest as resources_pytest
-import pytest_mergify.resources.mergify as resources_mergify
 import pytest_mergify.resources.jenkins as resources_jenkins
+import pytest_mergify.resources.mergify as resources_mergify
+import pytest_mergify.resources.pytest as resources_pytest
+from pytest_mergify import utils
 
 
 class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
@@ -102,6 +101,7 @@ class MergifyTracer:
 
         resource = opentelemetry.sdk.resources.get_aggregated_resources(
             [
+                resources_git.GitResourceDetector(),
                 resources_ci.CIResourceDetector(),
                 resources_gha.GitHubActionsResourceDetector(),
                 resources_jenkins.JenkinsResourceDetector(),
