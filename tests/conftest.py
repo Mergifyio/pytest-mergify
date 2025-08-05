@@ -64,8 +64,8 @@ def pytester_with_spans(
         spans_as_dict: typing.Optional[typing.Dict[str, ReadableSpan]]
         if code is _DEFAULT_PYTESTER_CODE:
             result.assert_outcomes(passed=1)
-        if isinstance(plugin.mergify_tracer.exporter, InMemorySpanExporter):
-            spans = plugin.mergify_tracer.exporter.get_finished_spans()
+        if isinstance(plugin.mergify_ci.exporter, InMemorySpanExporter):
+            spans = plugin.mergify_ci.exporter.get_finished_spans()
             spans_as_dict = {span.name: span for span in spans}
             # Make sure we don't lose spans in the process
             assert len(spans_as_dict) == len(spans)
