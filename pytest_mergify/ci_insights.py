@@ -122,6 +122,3 @@ class MergifyCIInsights:
 
         self.tracer_provider.add_span_processor(span_processor)
         self.tracer = self.tracer_provider.get_tracer("pytest-mergify")
-
-    def ci_supports_trace_interception(self) -> bool:
-        return utils.get_ci_provider() == "github_actions"
