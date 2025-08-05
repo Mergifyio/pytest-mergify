@@ -147,6 +147,7 @@ def test_errors_logs(
     monkeypatch.setenv("CI", "1")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_REPOSITORY", "foo/bar")
+    monkeypatch.setenv("GITHUB_REF", "main")
     pytester.makepyfile(
         """
         def test_pass():
@@ -180,12 +181,14 @@ def test_errors_logs_403(
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_REPOSITORY", "foo/bar")
     monkeypatch.setenv("MERGIFY_API_URL", http_server)
+    monkeypatch.setenv("GITHUB_BASE_REF", "main")
     pytester.makepyfile(
         """
         def test_pass():
             pass
         """
     )
+
     result = pytester.runpytest_subprocess()
     result.assert_outcomes(passed=1)
     assert any(
