@@ -48,7 +48,7 @@ class SessionHardRaiser(requests.Session):  # type: ignore[misc]
 
 
 @dataclasses.dataclass
-class MergifyTracer:
+class MergifyCIInsights:
     token: typing.Optional[str] = dataclasses.field(
         default_factory=lambda: os.environ.get("MERGIFY_TOKEN")
     )

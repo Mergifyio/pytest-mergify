@@ -100,7 +100,7 @@ def test_repo_name_github_actions(
     plugin = pytest_mergify.PytestMergify()
     pytester.makepyfile("")
     pytester.runpytest_inprocess(plugins=[plugin])
-    assert plugin.mergify_tracer.repo_name == "Mergifyio/pytest-mergify"
+    assert plugin.mergify_ci.repo_name == "Mergifyio/pytest-mergify"
 
 
 def test_with_token_empty_repo(
