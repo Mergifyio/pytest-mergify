@@ -18,18 +18,18 @@ from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from pytest_mergify import utils
-from pytest_mergify.tracer import MergifyTracer
+from pytest_mergify.ci_insights import MergifyCIInsights
 
 
 class PytestMergify:
-    mergify_tracer: MergifyTracer
+    mergify_ci: MergifyCIInsights
 
     def pytest_configure(self, config: _pytest.config.Config) -> None:
         kwargs = {}
         api_url = config.getoption("--mergify-api-url")
         if api_url is not None:
             kwargs["api_url"] = api_url
-        self.mergify_tracer = MergifyTracer(**kwargs)
+        self.mergify_ci = MergifyCIInsights(**kwargs)
 
     def pytest_terminal_summary(
         self, terminalreporter: _pytest.terminal.TerminalReporter
@@ -40,50 +40,65 @@ class PytestMergify:
 
         terminalreporter.section("Mergify CI")
 
-        if self.mergify_tracer.tracer_provider is None:
-            if not self.mergify_tracer.token:
-                terminalreporter.write_line(
-                    "No token configured for Mergify; test results will not be uploaded",
-                    yellow=True,
-                )
-                return
-
-            if not self.mergify_tracer.repo_name:
-                terminalreporter.write_line(
-                    "Unable to determine repository name; test results will not be uploaded",
-                    red=True,
-                )
-                return
-
+        if not self.mergify_ci.token:
             terminalreporter.write_line(
-                "Mergify Tracer didn't start for unexpected reason (Please contact Mergify support); test results will not be uploaded",
+                "No token configured for Mergify; test results will not be uploaded",
+                yellow=True,
+            )
+            return
+
+        if not self.mergify_ci.repo_name:
+            terminalreporter.write_line(
+                "Unable to determine repository name; test results will not be uploaded",
                 red=True,
             )
             return
 
-        try:
-            self.mergify_tracer.tracer_provider.force_flush()
-        except Exception as e:
+        # CI Insights Quarantine warning logs
+        if not self.mergify_ci.branch_name:
             terminalreporter.write_line(
-                f"Error while exporting traces: {e}",
+                "No valid branch name found, unable to setup CI Insights Quarantine",
+                yellow=True,
+            )
+
+        if (
+            self.mergify_ci.quarantined_tests is not None
+            and self.mergify_ci.quarantined_tests.init_error_msg
+        ):
+            terminalreporter.write_line(
+                self.mergify_ci.quarantined_tests.init_error_msg, yellow=True
+            )
+
+        # CI Insights Traces upload logs
+        if self.mergify_ci.tracer_provider is None:
+            terminalreporter.write_line(
+                "Mergify Tracer didn't start for unexpected reason (please contact Mergify support); test results will not be uploaded",
                 red=True,
             )
         else:
-            terminalreporter.write_line(
-                f"MERGIFY_TEST_RUN_ID={self.mergify_tracer.test_run_id}",
-            )
+            try:
+                self.mergify_ci.tracer_provider.force_flush()
+            except Exception as e:
+                terminalreporter.write_line(
+                    f"Error while exporting traces: {e}",
+                    red=True,
+                )
+            else:
+                terminalreporter.write_line(
+                    f"MERGIFY_TEST_RUN_ID={self.mergify_ci.test_run_id}",
+                )
 
-        try:
-            self.mergify_tracer.tracer_provider.shutdown()
-        except Exception as e:
-            terminalreporter.write_line(
-                f"Error while shutting down the tracer: {e}",
-                red=True,
-            )
+            try:
+                self.mergify_ci.tracer_provider.shutdown()
+            except Exception as e:
+                terminalreporter.write_line(
+                    f"Error while shutting down the tracer: {e}",
+                    red=True,
+                )
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
-        return self.mergify_tracer.tracer
+        return self.mergify_ci.tracer
 
     def pytest_sessionstart(self, session: _pytest.main.Session) -> None:
         if self.tracer:
@@ -171,6 +186,8 @@ class PytestMergify:
                 skip_attributes = {"test.case.result.status": "skipped"}
             else:
                 skip_attributes = {}
+
+                self.mergify_ci.mark_test_as_quarantined_if_needed(item)
 
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
