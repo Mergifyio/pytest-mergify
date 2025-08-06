@@ -54,6 +54,22 @@ class PytestMergify:
             )
             return
 
+        # CI Insights Quarantine warning logs
+        if not self.mergify_ci.branch_name:
+            terminalreporter.write_line(
+                "No valid branch name found, unable to setup CI Insights Quarantine",
+                yellow=True,
+            )
+
+        if (
+            self.mergify_ci.quarantined_tests is not None
+            and self.mergify_ci.quarantined_tests.init_error_msg
+        ):
+            terminalreporter.write_line(
+                self.mergify_ci.quarantined_tests.init_error_msg, yellow=True
+            )
+
+        # CI Insights Traces upload logs
         if self.mergify_ci.tracer_provider is None:
             terminalreporter.write_line(
                 "Mergify Tracer didn't start for unexpected reason (please contact Mergify support); test results will not be uploaded",
@@ -170,6 +186,8 @@ class PytestMergify:
                 skip_attributes = {"test.case.result.status": "skipped"}
             else:
                 skip_attributes = {}
+
+                self.mergify_ci.mark_test_as_quarantined_if_needed(item)
 
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(

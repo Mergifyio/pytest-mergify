@@ -22,6 +22,7 @@ poethepoet = ">=0.30"
 codespell = "^2.3.0"
 yamllint = "^1.35.1"
 anys = "^0.3.1"
+responses = "^0.25.7"
 
 [build-system]
 requires = ["poetry-core", "poetry-dynamic-versioning"]
@@ -46,6 +47,10 @@ target-version = "py38"
 module = [
   "pytest_opentelemetry.*"
 ]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "requests"
 ignore_missing_imports = true
 
 [tool.poetry-dynamic-versioning]

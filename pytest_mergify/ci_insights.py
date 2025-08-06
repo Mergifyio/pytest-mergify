@@ -1,9 +1,10 @@
 import dataclasses
-import os
+import _pytest.nodes
 import random
+import os
 import typing
 
-import requests  # type: ignore[import-untyped]
+import requests
 import opentelemetry.sdk.resources
 from opentelemetry.sdk.trace import export
 from opentelemetry.sdk.trace import TracerProvider, SpanProcessor, ReadableSpan
@@ -13,8 +14,10 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
 )
 
 from pytest_mergify import utils
+import pytest_mergify.quarantine
 
 import pytest_mergify.resources.ci as resources_ci
+from opentelemetry.semconv._incubating.attributes import vcs_attributes
 import pytest_mergify.resources.github_actions as resources_gha
 import pytest_mergify.resources.pytest as resources_pytest
 import pytest_mergify.resources.mergify as resources_mergify
@@ -60,6 +63,10 @@ class MergifyCIInsights:
             "MERGIFY_API_URL", "https://api.mergify.com"
         )
     )
+    branch_name: typing.Optional[str] = dataclasses.field(
+        init=False,
+        default=None,
+    )
     exporter: typing.Optional[export.SpanExporter] = dataclasses.field(
         init=False, default=None
     )
@@ -70,7 +77,14 @@ class MergifyCIInsights:
         dataclasses.field(init=False, default=None)
     )
     test_run_id: str = dataclasses.field(
-        default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex()
+        init=False,
+        default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex(),
+    )
+    quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
+        dataclasses.field(
+            init=False,
+            default=None,
+        )
     )
 
     def __post_init__(self) -> None:
@@ -122,3 +136,24 @@ class MergifyCIInsights:
 
         self.tracer_provider.add_span_processor(span_processor)
         self.tracer = self.tracer_provider.get_tracer("pytest-mergify")
+
+        # Retrieve the branch name based on the detected resources's attributes
+        branch_name = resource.attributes.get(
+            vcs_attributes.VCS_REF_BASE_NAME,
+            resource.attributes.get(vcs_attributes.VCS_REF_HEAD_NAME),
+        )
+        if branch_name is not None:
+            # `str` cast just for `mypy`
+            self.branch_name = str(branch_name)
+
+        if self.token and self.repo_name and self.branch_name:
+            self.quarantined_tests = pytest_mergify.quarantine.Quarantine(
+                self.api_url,
+                self.token,
+                self.repo_name,
+                self.branch_name,
+            )
+
+    def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> None:
+        if self.quarantined_tests is not None and item in self.quarantined_tests:
+            self.quarantined_tests.mark_test_as_quarantined(item)
