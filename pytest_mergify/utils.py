@@ -36,8 +36,20 @@ def get_ci_provider() -> typing.Optional[CIProviderT]:
 
 
 def get_repository_name_from_url(repository_url: str) -> typing.Optional[str]:
+    # Handle SSH Git URLs like git@github.com:owner/repo.git
     if match := re.match(
-        r"(https?://[\w.-]+/)?(?P<full_name>[\w.-]+/[\w.-]+)/?$",
+        r"git@[\w.-]+:(?P<full_name>[\w.-]+/[\w.-]+)(?:\.git)?/?$",
+        repository_url,
+    ):
+        full_name = match.group("full_name")
+        # Remove .git suffix if present
+        if full_name.endswith(".git"):
+            full_name = full_name[:-4]
+        return full_name
+
+    # Handle HTTPS/HTTP URLs like https://github.com/owner/repo (with optional port)
+    if match := re.match(
+        r"(https?://[\w.-]+(?::\d+)?/)?(?P<full_name>[\w.-]+/[\w.-]+)/?$",
         repository_url,
     ):
         return match.group("full_name")
