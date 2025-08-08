@@ -41,9 +41,19 @@ def test_my_very_flaky_success_test():
         ].status.status_code
         == opentelemetry.trace.StatusCode.OK
     )
+    assert (
+        spans["test_spans_quarantine.py::test_my_not_flaky_success_test"].attributes
+        is not None
+    )
+    assert not spans[
+        "test_spans_quarantine.py::test_my_not_flaky_success_test"
+    ].attributes["cicd.test.quarantined"]
 
     assert "test_spans_quarantine.py::test_my_not_flaky_failure_test" in spans
-
+    assert (
+        spans["test_spans_quarantine.py::test_my_not_flaky_failure_test"].attributes
+        is not None
+    )
     assert (
         spans[
             "test_spans_quarantine.py::test_my_not_flaky_failure_test"
@@ -51,8 +61,20 @@ def test_my_very_flaky_success_test():
         == opentelemetry.trace.StatusCode.ERROR
     )
 
+    assert not spans[
+        "test_spans_quarantine.py::test_my_not_flaky_failure_test"
+    ].attributes["cicd.test.quarantined"]
+
     assert "test_spans_quarantine.py::test_my_very_flaky_failure_test" in spans
     assert "test_spans_quarantine.py::test_my_very_flaky_success_test" in spans
+    assert (
+        spans["test_spans_quarantine.py::test_my_very_flaky_failure_test"].attributes
+        is not None
+    )
+    assert (
+        spans["test_spans_quarantine.py::test_my_very_flaky_success_test"].attributes
+        is not None
+    )
     assert (
         spans[
             "test_spans_quarantine.py::test_my_very_flaky_failure_test"
@@ -60,9 +82,16 @@ def test_my_very_flaky_success_test():
         == opentelemetry.trace.StatusCode.OK
     )
 
+    assert spans[
+        "test_spans_quarantine.py::test_my_very_flaky_failure_test"
+    ].attributes["cicd.test.quarantined"]
+
     assert (
         spans[
             "test_spans_quarantine.py::test_my_very_flaky_success_test"
         ].status.status_code
         == opentelemetry.trace.StatusCode.OK
     )
+    assert spans[
+        "test_spans_quarantine.py::test_my_very_flaky_success_test"
+    ].attributes["cicd.test.quarantined"]

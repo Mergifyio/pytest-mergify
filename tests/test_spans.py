@@ -74,6 +74,7 @@ def test_test(
         "test.case.result.status": "passed",
         "code.file.path": anys.ANY_STR,
         "code.line.number": 0,
+        "cicd.test.quarantined": False,
     }
     assert (
         spans["test_test.py::test_pass"].status.status_code
@@ -109,6 +110,7 @@ E   assert False
 test_test_failure.py:1: AssertionError""",
         "code.file.path": anys.ANY_STR,
         "code.line.number": 0,
+        "cicd.test.quarantined": False,
     }
     assert (
         spans["test_test_failure.py::test_error"].status.status_code
@@ -146,6 +148,7 @@ def test_skipped():
         "code.namespace": "",
         "code.file.path": anys.ANY_STR,
         "code.line.number": 1,
+        "cicd.test.quarantined": False,
     }
     assert (
         spans["test_test_skipped.py::test_skipped"].status.status_code
@@ -191,6 +194,7 @@ def test_skipped():
         "code.namespace": "",
         "code.file.path": anys.ANY_STR,
         "code.line.number": 1,
+        "cicd.test.quarantined": False,
     }
     assert (
         spans["test_mark_skipped.py::test_skipped"].status.status_code
@@ -225,6 +229,7 @@ def test_not_skipped():
         "code.namespace": "",
         "code.file.path": anys.ANY_STR,
         "code.line.number": 1,
+        "cicd.test.quarantined": False,
     }
     assert (
         spans["test_mark_not_skipped.py::test_not_skipped"].status.status_code

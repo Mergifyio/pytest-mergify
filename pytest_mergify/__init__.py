@@ -182,19 +182,20 @@ class PytestMergify:
             else:
                 skip = False
 
+            additional_attributes: typing.Dict[str, typing.Any] = {}
             if skip:
-                skip_attributes = {"test.case.result.status": "skipped"}
+                additional_attributes["test.case.result.status"] = "skipped"
+                additional_attributes["cicd.test.quarantined"] = False
             else:
-                skip_attributes = {}
-
-                self.mergify_ci.mark_test_as_quarantined_if_needed(item)
+                quarantined = self.mergify_ci.mark_test_as_quarantined_if_needed(item)
+                additional_attributes["cicd.test.quarantined"] = quarantined
 
             context = opentelemetry.trace.set_span_in_context(self.session_span)
             with self.tracer.start_as_current_span(
                 item.nodeid,
                 attributes={
                     **self._attributes_from_item(item),
-                    **skip_attributes,
+                    **additional_attributes,
                     **{"test.scope": "case"},
                 },
                 context=context,

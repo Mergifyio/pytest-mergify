@@ -154,6 +154,12 @@ class MergifyCIInsights:
                 self.branch_name,
             )
 
-    def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> None:
+    def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
+        """
+        Returns `True` if the test was marked as quarantined, otherwise returns `False`.
+        """
         if self.quarantined_tests is not None and item in self.quarantined_tests:
             self.quarantined_tests.mark_test_as_quarantined(item)
+            return True
+
+        return False
