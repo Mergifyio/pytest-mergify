@@ -65,6 +65,20 @@ def get_repository_name_from_env_url(env: str) -> typing.Optional[str]:
     return None
 
 
+class InvalidRepositoryFullNameError(Exception):
+    pass
+
+
+def split_full_repo_name(
+    full_repo_name: str,
+) -> typing.Tuple[str, str]:
+    split_name = full_repo_name.split("/")
+    if len(split_name) == 2:
+        return split_name[0], split_name[1]
+
+    raise InvalidRepositoryFullNameError(f"Invalid repository name: {full_repo_name}")
+
+
 def get_repository_name() -> typing.Optional[str]:
     provider = get_ci_provider()
 
