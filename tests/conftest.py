@@ -77,12 +77,18 @@ def pytester_with_spans(
         )
 
         full_repository = utils.get_repository_name()
-        passthrough = responses.Response(
-            responses.POST,
-            f"{api_url}/v1/repos/{full_repository}/ci/traces",
-            passthrough=True,
-        )
-        responses.add(passthrough)
+        if full_repository is not None:
+            try:
+                owner, repo = utils.split_full_repo_name(full_repository)
+            except utils.InvalidRepositoryFullNameError:
+                pass
+            else:
+                passthrough = responses.Response(
+                    responses.POST,
+                    f"{api_url}/v1/ci/{owner}/repositories/{repo}/traces",
+                    passthrough=True,
+                )
+                responses.add(passthrough)
 
         plugin = pytest_mergify.PytestMergify()
         pytester.makepyfile(code)
@@ -111,7 +117,7 @@ class TestHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = self.path[1:].split("/")
         # loozy match, who cares
-        if path[0] == "v1" and path[-1] == "traces" and path[-2] == "ci":
+        if path[0] == "v1" and path[-1] == "traces":
             self.send_response(self.__class__.response_code)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
