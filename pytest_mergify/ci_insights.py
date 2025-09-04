@@ -103,9 +103,13 @@ class MergifyCIInsights:
             self.exporter = InMemorySpanExporter()
             span_processor = export.SimpleSpanProcessor(self.exporter)
         elif self.token and self.repo_name:
+            try:
+                owner, repo = utils.split_full_repo_name(self.repo_name)
+            except utils.InvalidRepositoryFullNameError:
+                return
             self.exporter = OTLPSpanExporter(
                 session=SessionHardRaiser(),
-                endpoint=f"{self.api_url}/v1/repos/{self.repo_name}/ci/traces",
+                endpoint=f"{self.api_url}/v1/ci/{owner}/repositories/{repo}/traces",
                 headers={"Authorization": f"Bearer {self.token}"},
                 compression=Compression.Gzip,
             )
