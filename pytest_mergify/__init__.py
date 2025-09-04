@@ -220,7 +220,7 @@ class PytestMergify:
 
             test_span.set_attributes(
                 {
-                    SpanAttributes.EXCEPTION_TYPE: str(excinfo.type),
+                    SpanAttributes.EXCEPTION_TYPE: str(excinfo.type.__name__),
                     SpanAttributes.EXCEPTION_MESSAGE: str(excinfo.value),
                     SpanAttributes.EXCEPTION_STACKTRACE: str(report.longrepr),
                 }
