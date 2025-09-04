@@ -101,7 +101,7 @@ def test_test_failure(
         "code.lineno": 0,
         "code.filepath": "test_test_failure.py",
         "code.namespace": "",
-        SpanAttributes.EXCEPTION_TYPE: "<class 'AssertionError'>",
+        SpanAttributes.EXCEPTION_TYPE: "AssertionError",
         SpanAttributes.EXCEPTION_MESSAGE: "foobar\nassert False",
         SpanAttributes.EXCEPTION_STACKTRACE: """>   def test_error(): assert False, 'foobar'
 E   AssertionError: foobar

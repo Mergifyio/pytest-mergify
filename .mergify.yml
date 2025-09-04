@@ -2,6 +2,9 @@ extends: .github
 
 queue_rules:
   - name: default
+    autoqueue: true
+    queue_conditions:
+      - base = main
     commit_message_template: |
       {{ title }} (#{{ number }})
 
@@ -9,12 +12,6 @@ queue_rules:
     merge_method: squash
 
 pull_request_rules:
-  - name: automatic merge
-    conditions:
-      - base = main
-    actions:
-      queue:
-
   - name: request review
     conditions:
       - author != dependabot[bot]
@@ -48,3 +45,6 @@ merge_protections:
 
 merge_queue:
   max_parallel_checks: 3
+
+merge_protections_settings:
+  reporting_method: deployments
