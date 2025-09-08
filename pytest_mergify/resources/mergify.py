@@ -7,6 +7,10 @@ class MergifyResourceDetector(ResourceDetector):
     """Detects OpenTelemetry Resource attributes for Mergify fields."""
 
     OPENTELEMETRY_MERGIFY_MAPPING = {
+        "mergify.test.flaky_detection_enabled": (
+            str,
+            "MERGIFY_TEST_FLAKY_DETECTION_ENABLED",
+        ),
         "mergify.test.job.name": (str, "MERGIFY_TEST_JOB_NAME"),
     }
 
