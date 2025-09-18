@@ -1,9 +1,10 @@
-import pytest
-
 import _pytest.config
+import pytest
+import responses
 from _pytest.pytester import Pytester
 
 import pytest_mergify
+
 from . import conftest
 
 
@@ -201,3 +202,39 @@ def test_errors_logs_403(
         line.startswith("::notice title=Mergify CI::MERGIFY_TEST_RUN_ID=")
         for line in result.stdout.lines
     )
+
+
+@responses.activate
+def test_summary_shows_flaky_test_detection(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: Pytester,
+) -> None:
+    monkeypatch.setenv("_MERGIFY_TEST_NEW_FLAKY_DETECTION", "true")
+    monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_BASE_REF", "main")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
+    monkeypatch.setenv("MERGIFY_API_URL", "https://example.com")
+    monkeypatch.setenv("MERGIFY_TOKEN", "my_token")
+
+    responses.add(
+        method=responses.GET,
+        url="https://example.com/v1/ci/Mergifyio/tests/names",
+        match=[
+            responses.matchers.query_param_matcher(
+                {"repository": "pytest-mergify", "branch": "main"}
+            )
+        ],
+        json={"test_names": ["x::test_a", "x::test_b"]},
+        status=200,
+    )
+
+    pytester.makepyfile(
+        """
+        def test_foo():
+            assert True
+        """
+    )
+    result = pytester.runpytest_inprocess()
+    assert "Found 2 existing tests" in result.stdout.str()

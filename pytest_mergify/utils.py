@@ -144,3 +144,14 @@ def git(*args: str) -> typing.Optional[str]:
         ).strip()
     except subprocess.CalledProcessError:
         return None
+
+
+def is_env_truthy(key: str) -> bool:
+    return os.getenv(key, default="").lower() in {
+        "y",
+        "yes",
+        "t",
+        "true",
+        "on",
+        "1",
+    }
