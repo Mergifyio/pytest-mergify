@@ -87,6 +87,10 @@ class MergifyCIInsights:
         init=False,
         default=None,
     )
+    total_test_durations_ms: int = dataclasses.field(init=False, default=0)
+    new_test_durations_by_name: typing.Dict[str, int] = dataclasses.field(
+        init=False, default_factory=dict
+    )
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
         dataclasses.field(
             init=False,
@@ -168,9 +172,24 @@ class MergifyCIInsights:
                 self.branch_name,
             )
 
-    def _load_flaky_detection(self) -> None:
+    def add_new_test_duration(self, test_name: str, test_duration_ms: int) -> None:
+        if test_name in self.new_test_durations_by_name:
+            return
+
+        self.new_test_durations_by_name[test_name] = test_duration_ms
+
+    def is_flaky_detection_enabled(self) -> bool:
         # NOTE(remyduthu): Hide behind a feature flag for now.
-        if not utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION"):
+        return utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
+
+    def is_flaky_detection_active(self) -> bool:
+        return (
+            self.is_flaky_detection_enabled()
+            and self.flaky_detection_error_message is None
+        )
+
+    def _load_flaky_detection(self) -> None:
+        if not self.is_flaky_detection_enabled():
             return
 
         try:

@@ -5,6 +5,8 @@ import responses
 
 from pytest_mergify import ci_insights
 
+from . import conftest
+
 
 def _set_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("_MERGIFY_TEST_NEW_FLAKY_DETECTION", "true")
@@ -66,3 +68,50 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not client.existing_test_names
     assert client.flaky_detection_error_message is not None
     assert "500 Server Error" in client.flaky_detection_error_message
+
+
+@responses.activate
+def test_flaky_detection_detects_new_tests(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_test_names_mock(
+        [
+            "test_flaky_detection_detects_new_tests.py::test_foo",
+            "test_flaky_detection_detects_new_tests.py::test_unknown",
+        ]
+    )
+
+    result, spans = pytester_with_spans(
+        code="""
+        def test_foo():
+            assert True
+
+        def test_bar():
+            assert True
+        
+        def test_baz():
+            assert True
+        """
+    )
+    result.assert_outcomes(passed=3)
+
+    assert """Fetched 2 existing tests
+Detected 2 new tests
+  - test_flaky_detection_detects_new_tests.py::test_bar (0ms)
+  - test_flaky_detection_detects_new_tests.py::test_baz (0ms)""" in result.stdout.str()
+
+    assert spans is not None
+    for test_name, expected in {
+        "test_flaky_detection_detects_new_tests.py::test_foo": False,
+        "test_flaky_detection_detects_new_tests.py::test_bar": True,
+        "test_flaky_detection_detects_new_tests.py::test_baz": True,
+    }.items():
+        span = spans.get(test_name)
+
+        assert span is not None
+        assert span.attributes is not None
+        if expected:
+            assert span.attributes.get("cicd.test.new")
