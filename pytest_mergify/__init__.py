@@ -102,6 +102,9 @@ class PytestMergify:
         self,
         terminalreporter: _pytest.terminal.TerminalReporter,
     ) -> None:
+        if not self.mergify_ci.is_flaky_detection_enabled():
+            return
+
         if self.mergify_ci.flaky_detection_error_message:
             terminalreporter.write_line(
                 f"Unable to perform flaky detection. Error: {self.mergify_ci.flaky_detection_error_message}",
@@ -110,11 +113,20 @@ class PytestMergify:
 
             return
 
-        # NOTE(remyduthu): This is a temporary log. These names form the
-        # baseline to later detect newly added tests.
+        # NOTE(remyduthu):
+        # The following logs are temporary.
+        # We'll automatically retry newly added tests to detect flakiness.
         terminalreporter.write_line(
-            f"Found {len(self.mergify_ci.existing_test_names)} existing tests",
+            f"Fetched {len(self.mergify_ci.existing_test_names)} existing tests",
         )
+        terminalreporter.write_line(
+            f"Detected {len(self.mergify_ci.new_test_durations_by_name)} new tests"
+        )
+        for (
+            test_name,
+            test_duration_ms,
+        ) in self.mergify_ci.new_test_durations_by_name.items():
+            terminalreporter.write_line(f"  - {test_name} ({test_duration_ms}ms)")
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
@@ -252,6 +264,27 @@ class PytestMergify:
                 )
             )
 
+    def _handle_flaky_detection_for_report(
+        self,
+        report: _pytest.reports.TestReport,
+    ) -> None:
+        if not self.mergify_ci.is_flaky_detection_active():
+            return
+
+        test_duration_ms = int(report.duration * 1000)
+        self.mergify_ci.total_test_durations_ms += test_duration_ms
+
+        test_name = report.nodeid
+        if test_name in self.mergify_ci.existing_test_names:
+            return
+
+        self.mergify_ci.add_new_test_duration(test_name, test_duration_ms)
+
+        if self.tracer:
+            opentelemetry.trace.get_current_span().set_attributes(
+                {"cicd.test.new": True}
+            )
+
     def pytest_runtest_logreport(self, report: _pytest.reports.TestReport) -> None:
         if self.tracer is None:
             return
@@ -277,6 +310,8 @@ class PytestMergify:
                 "test.case.result.status": report.outcome,
             }
         )
+
+        self._handle_flaky_detection_for_report(report)
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
