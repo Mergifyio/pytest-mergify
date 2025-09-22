@@ -79,6 +79,14 @@ class MergifyCIInsights:
         init=False,
         default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex(),
     )
+    existing_test_names: typing.List[str] = dataclasses.field(
+        init=False,
+        default_factory=list,
+    )
+    flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
+        init=False,
+        default=None,
+    )
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
         dataclasses.field(
             init=False,
@@ -150,6 +158,8 @@ class MergifyCIInsights:
             # `str` cast just for `mypy`
             self.branch_name = str(branch_name)
 
+        self._load_flaky_detection()
+
         if self.token and self.repo_name and self.branch_name:
             self.quarantined_tests = pytest_mergify.quarantine.Quarantine(
                 self.api_url,
@@ -157,6 +167,35 @@ class MergifyCIInsights:
                 self.repo_name,
                 self.branch_name,
             )
+
+    def _load_flaky_detection(self) -> None:
+        # NOTE(remyduthu): Hide behind a feature flag for now.
+        if not utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION"):
+            return
+
+        try:
+            self.existing_test_names = self._fetch_existing_test_names()
+        except Exception as exception:
+            self.flaky_detection_error_message = (
+                f"Could not fetch existing test names: {str(exception)}"
+            )
+
+    def _fetch_existing_test_names(self) -> typing.List[str]:
+        if not self.token or not self.repo_name or not self.branch_name:
+            return []
+
+        owner, repository = utils.split_full_repo_name(self.repo_name)
+
+        response = requests.get(
+            url=f"{self.api_url}/v1/ci/{owner}/tests/names",
+            headers={"Authorization": f"Bearer {self.token}"},
+            params={"repository": repository, "branch": self.branch_name},
+            timeout=10,
+        )
+
+        response.raise_for_status()
+
+        return typing.cast(typing.List[str], response.json()["test_names"])
 
     def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
         """

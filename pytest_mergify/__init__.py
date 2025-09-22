@@ -1,19 +1,19 @@
-import typing
-
 import os
-import sys
-from collections.abc import Mapping
 import platform
-import pytest
-import _pytest.main
-import _pytest.runner
-import _pytest.reports
+import sys
+import typing
+from collections.abc import Mapping
+
 import _pytest.config
 import _pytest.config.argparsing
-import _pytest.pathlib
+import _pytest.main
 import _pytest.nodes
+import _pytest.pathlib
+import _pytest.reports
+import _pytest.runner
 import _pytest.terminal
 import opentelemetry.trace
+import pytest
 from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -53,6 +53,8 @@ class PytestMergify:
                 red=True,
             )
             return
+
+        self._report_flaky_detection(terminalreporter)
 
         # CI Insights Quarantine warning logs
         if not self.mergify_ci.branch_name:
@@ -95,6 +97,24 @@ class PytestMergify:
                     f"Error while shutting down the tracer: {e}",
                     red=True,
                 )
+
+    def _report_flaky_detection(
+        self,
+        terminalreporter: _pytest.terminal.TerminalReporter,
+    ) -> None:
+        if self.mergify_ci.flaky_detection_error_message:
+            terminalreporter.write_line(
+                f"Unable to perform flaky detection. Error: {self.mergify_ci.flaky_detection_error_message}",
+                yellow=True,
+            )
+
+            return
+
+        # NOTE(remyduthu): This is a temporary log. These names form the
+        # baseline to later detect newly added tests.
+        terminalreporter.write_line(
+            f"Found {len(self.mergify_ci.existing_test_names)} existing tests",
+        )
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
