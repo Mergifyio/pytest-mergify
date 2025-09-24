@@ -1,4 +1,6 @@
 import typing
+import datetime
+import uuid
 import re
 import os
 import responses
@@ -69,11 +71,29 @@ def pytester_with_spans(
                 monkeypatch.setenv(k, v)
 
         api_url = os.getenv("MERGIFY_API_URL")
+
+        qtest_resp: typing.Dict[str, typing.Any]
+        if not quarantined_tests:
+            qtest_resp = {"quarantined_tests": []}
+        else:
+            qtest_resp = {
+                "quarantined_tests": [
+                    {
+                        "id": uuid.uuid4().hex,
+                        "test_name": qtest,
+                        "reason": "reasonfoobar",
+                        "branch": None,
+                        "created_at": datetime.datetime.now().isoformat(),
+                    }
+                    for qtest in quarantined_tests
+                ]
+            }
+
         responses.add(
             responses.GET,
             re.compile(rf"{api_url}/v1/ci/.*/repositories/.*/quarantines\?branch=.*"),
             status=200,
-            json={"quarantined_tests": quarantined_tests or []},
+            json=qtest_resp,
         )
 
         full_repository = utils.get_repository_name()
