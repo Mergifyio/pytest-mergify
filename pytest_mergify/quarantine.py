@@ -50,7 +50,9 @@ class Quarantine:
             self.init_error_msg = f"Error when querying Mergify's API, tests won't be quarantined. Error: {str(exc)}"
             return
 
-        self.quarantined_tests = quarantine_resp.json()["quarantined_tests"]
+        self.quarantined_tests = [
+            qtest["test_name"] for qtest in quarantine_resp.json()["quarantined_tests"]
+        ]
 
     def __contains__(self, item: _pytest.nodes.Item) -> bool:
         return item.nodeid in self.quarantined_tests
