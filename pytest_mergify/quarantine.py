@@ -36,7 +36,7 @@ class Quarantine:
                 params={"branch": self.branch_name},
                 timeout=10,
             )
-        except requests.ConnectionError as exc:
+        except requests.RequestException as exc:
             self.init_error_msg = f"Failed to connect to Mergify's API, tests won't be quarantined. Error: {str(exc)}"
             return
 
