@@ -65,13 +65,15 @@ class PytestMergify:
 
         if self.mergify_ci.quarantined_tests is None:
             terminalreporter.write_line("CI Insights Quarantine could not be setup")
-        elif (
-            self.mergify_ci.quarantined_tests is not None
-            and self.mergify_ci.quarantined_tests.init_error_msg
-        ):
-            terminalreporter.write_line(
-                self.mergify_ci.quarantined_tests.init_error_msg, yellow=True
-            )
+        elif self.mergify_ci.quarantined_tests is not None:
+            if self.mergify_ci.quarantined_tests.init_error_msg:
+                terminalreporter.write_line(
+                    self.mergify_ci.quarantined_tests.init_error_msg, yellow=True
+                )
+            else:
+                terminalreporter.write_line(
+                    self.mergify_ci.quarantined_tests.quarantined_tests_report()
+                )
 
         # CI Insights Traces upload logs
         if self.mergify_ci.tracer_provider is None:

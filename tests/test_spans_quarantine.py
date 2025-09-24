@@ -30,6 +30,7 @@ def test_my_very_flaky_success_test():
         quarantined_tests=[
             "test_spans_quarantine.py::test_my_very_flaky_failure_test",
             "test_spans_quarantine.py::test_my_very_flaky_success_test",
+            "test_spans_quarantine.py::some_other_test",
         ],
     )
     assert spans is not None
@@ -95,3 +96,16 @@ def test_my_very_flaky_success_test():
     assert spans[
         "test_spans_quarantine.py::test_my_very_flaky_success_test"
     ].attributes["cicd.test.quarantined"]
+
+    assert """🛡️ Quarantine
+- Repository: foo/bar
+- Branch: main
+- Quarantined tests fetched from API: 3
+
+- 🔒 Quarantined:
+    · test_spans_quarantine.py::test_my_very_flaky_failure_test
+    · test_spans_quarantine.py::test_my_very_flaky_success_test
+
+- Unused quarantined tests:
+    · test_spans_quarantine.py::some_other_test
+""" in result.stdout.str()
