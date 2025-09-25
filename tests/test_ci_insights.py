@@ -89,19 +89,27 @@ def test_flaky_detection_detects_new_tests(
         def test_foo():
             assert True
 
+        execution_count = 0
+
         def test_bar():
-            assert True
+            # Simulate a flaky test.
+            global execution_count
+            if execution_count == 2:
+                pytest.fail("I'm flaky!")
+            
+            execution_count += 1
         
         def test_baz():
             assert True
         """
     )
-    result.assert_outcomes(passed=3)
 
     assert """Fetched 2 existing tests
 Detected 2 new tests
   - test_flaky_detection_detects_new_tests.py::test_bar (0ms)
-  - test_flaky_detection_detects_new_tests.py::test_baz (0ms)""" in result.stdout.str()
+  - test_flaky_detection_detects_new_tests.py::test_baz (0ms)
+Detected 1 new flaky tests
+  - test_flaky_detection_detects_new_tests.py::test_bar""" in result.stdout.str()
 
     assert spans is not None
     for test_name, expected in {

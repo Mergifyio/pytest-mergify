@@ -83,6 +83,10 @@ class MergifyCIInsights:
         init=False,
         default_factory=list,
     )
+    flaky_test_names: typing.List[str] = dataclasses.field(
+        init=False,
+        default_factory=list,
+    )
     flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
         init=False,
         default=None,
@@ -215,6 +219,42 @@ class MergifyCIInsights:
         response.raise_for_status()
 
         return typing.cast(typing.List[str], response.json()["test_names"])
+
+    def run_flaky_detection(self, session: _pytest.main.Session) -> None:
+        if not self.is_flaky_detection_active():
+            return
+
+        for index, item in enumerate(session.items):
+            if item.nodeid not in self.new_test_durations_by_name:
+                continue  # Only run for newly added tests.
+
+            self._run_flaky_detection_for_item(item)
+
+    def _run_flaky_detection_for_item(
+        self,
+        item: _pytest.nodes.Item,
+    ) -> None:
+        outcomes = {"failed": 0, "passed": 0}
+
+        for _ in range(5):  # NOTE(remyduthu): Hard-coded value for now.
+            reports = _pytest.runner.runtestprotocol(
+                item=item,
+                log=False,
+            )
+            for report in reports:
+                if report.when != "call":
+                    continue
+
+                outcomes[report.outcome] += 1
+
+        # NOTE(remyduthu): We execute all tests a first time to detect newly
+        # added tests. We might want to include the outcome of the first run in
+        # this mechanism, but it's simpler to ignore it for now.
+        is_flaky = outcomes.get("failed", 0) > 0 and outcomes.get("passed", 0) > 0
+        if not is_flaky:
+            return
+
+        self.flaky_test_names.append(item.nodeid)
 
     def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
         """
