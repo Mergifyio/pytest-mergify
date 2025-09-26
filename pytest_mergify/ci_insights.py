@@ -249,7 +249,8 @@ class MergifyCIInsights:
                 if report.when != "call":
                     continue
 
-                outcomes[report.outcome] += 1
+                if report.outcome in ("failed", "passed"):
+                    outcomes[report.outcome] += 1
 
         # NOTE(remyduthu): We execute all tests a first time to detect newly
         # added tests. We might want to include the outcome of the first run in
