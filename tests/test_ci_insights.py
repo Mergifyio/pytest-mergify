@@ -1,3 +1,4 @@
+import re
 import typing
 
 import pytest
@@ -86,6 +87,8 @@ def test_flaky_detection_detects_new_tests(
 
     result, spans = pytester_with_spans(
         code="""
+        import pytest
+
         def test_foo():
             assert True
 
@@ -101,21 +104,30 @@ def test_flaky_detection_detects_new_tests(
         
         def test_baz():
             assert True
+
+        def test_qux():
+            pytest.skip("I'm skipped!")
         """
     )
 
-    assert """Fetched 2 existing tests
-Detected 2 new tests
-  - test_flaky_detection_detects_new_tests.py::test_bar (0ms)
-  - test_flaky_detection_detects_new_tests.py::test_baz (0ms)
+    assert re.search(
+        r"""Fetched 2 existing tests
+Detected 3 new tests
+  - test_flaky_detection_detects_new_tests\.py::test_bar \(\d+ms\)
+  - test_flaky_detection_detects_new_tests\.py::test_baz \(\d+ms\)
+  - test_flaky_detection_detects_new_tests\.py::test_qux \(\d+ms\)
 Detected 1 new flaky tests
-  - test_flaky_detection_detects_new_tests.py::test_bar""" in result.stdout.str()
+  - test_flaky_detection_detects_new_tests\.py::test_bar""",
+        result.stdout.str(),
+        re.MULTILINE,
+    )
 
     assert spans is not None
     for test_name, expected in {
         "test_flaky_detection_detects_new_tests.py::test_foo": False,
         "test_flaky_detection_detects_new_tests.py::test_bar": True,
         "test_flaky_detection_detects_new_tests.py::test_baz": True,
+        "test_flaky_detection_detects_new_tests.py::test_qux": False,
     }.items():
         span = spans.get(test_name)
 
