@@ -192,61 +192,62 @@ class PytestMergify:
     def pytest_runtest_protocol(
         self, item: _pytest.nodes.Item
     ) -> typing.Generator[None, None, None]:
-        if self.tracer:
-            if item.get_closest_marker("skip") is not None:
-                skip = True
-            elif (skipif_marker := item.get_closest_marker("skipif")) is not None:
-                condition = skipif_marker.args[0]
-                if isinstance(condition, str):
-                    #  Mimics how pytest evaluate the conditions
-                    # https://github.com/pytest-dev/pytest/blob/c5a75f2498c86850c4ce13bcf10d56efc92394a4/src/_pytest/skipping.py#L88
-                    globals_ = {
-                        "os": os,
-                        "sys": sys,
-                        "platform": platform,
-                        "config": item.config,
-                    }
+        if not self.tracer:
+            yield
+            return
 
-                    if hasattr(item, "ihook"):
-                        for dictionary in reversed(
-                            item.ihook.pytest_markeval_namespace(config=item.config)
-                        ):
-                            if not isinstance(dictionary, Mapping):
-                                raise ValueError(
-                                    f"pytest_markeval_namespace() needs to return a dict, got {dictionary!r}"
-                                )
-                            globals_.update(dictionary)
-                    if hasattr(item, "obj"):
-                        globals_.update(item.obj.__globals__)
-                    filename = f"<{skipif_marker.name} condition>"
-                    condition_code = compile(condition, filename, "eval")
-                    # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
-                    skip = eval(condition_code, globals_)
-                else:
-                    skip = bool(condition)
+        if item.get_closest_marker("skip") is not None:
+            skip = True
+        elif (skipif_marker := item.get_closest_marker("skipif")) is not None:
+            condition = skipif_marker.args[0]
+            if isinstance(condition, str):
+                #  Mimics how pytest evaluate the conditions
+                # https://github.com/pytest-dev/pytest/blob/c5a75f2498c86850c4ce13bcf10d56efc92394a4/src/_pytest/skipping.py#L88
+                globals_ = {
+                    "os": os,
+                    "sys": sys,
+                    "platform": platform,
+                    "config": item.config,
+                }
+
+                if hasattr(item, "ihook"):
+                    for dictionary in reversed(
+                        item.ihook.pytest_markeval_namespace(config=item.config)
+                    ):
+                        if not isinstance(dictionary, Mapping):
+                            raise ValueError(
+                                f"pytest_markeval_namespace() needs to return a dict, got {dictionary!r}"
+                            )
+                        globals_.update(dictionary)
+                if hasattr(item, "obj"):
+                    globals_.update(item.obj.__globals__)
+                filename = f"<{skipif_marker.name} condition>"
+                condition_code = compile(condition, filename, "eval")
+                # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
+                skip = eval(condition_code, globals_)
             else:
-                skip = False
-
-            additional_attributes: typing.Dict[str, typing.Any] = {}
-            if skip:
-                additional_attributes["test.case.result.status"] = "skipped"
-                additional_attributes["cicd.test.quarantined"] = False
-            else:
-                quarantined = self.mergify_ci.mark_test_as_quarantined_if_needed(item)
-                additional_attributes["cicd.test.quarantined"] = quarantined
-
-            context = opentelemetry.trace.set_span_in_context(self.session_span)
-            with self.tracer.start_as_current_span(
-                item.nodeid,
-                attributes={
-                    **self._attributes_from_item(item),
-                    **additional_attributes,
-                    **{"test.scope": "case"},
-                },
-                context=context,
-            ):
-                yield
+                skip = bool(condition)
         else:
+            skip = False
+
+        additional_attributes: typing.Dict[str, typing.Any] = {}
+        if skip:
+            additional_attributes["test.case.result.status"] = "skipped"
+            additional_attributes["cicd.test.quarantined"] = False
+        else:
+            quarantined = self.mergify_ci.mark_test_as_quarantined_if_needed(item)
+            additional_attributes["cicd.test.quarantined"] = quarantined
+
+        context = opentelemetry.trace.set_span_in_context(self.session_span)
+        with self.tracer.start_as_current_span(
+            item.nodeid,
+            attributes={
+                **self._attributes_from_item(item),
+                **additional_attributes,
+                **{"test.scope": "case"},
+            },
+            context=context,
+        ):
             yield
 
     def pytest_exception_interact(
