@@ -196,42 +196,8 @@ class PytestMergify:
             yield
             return
 
-        if item.get_closest_marker("skip") is not None:
-            skip = True
-        elif (skipif_marker := item.get_closest_marker("skipif")) is not None:
-            condition = skipif_marker.args[0]
-            if isinstance(condition, str):
-                #  Mimics how pytest evaluate the conditions
-                # https://github.com/pytest-dev/pytest/blob/c5a75f2498c86850c4ce13bcf10d56efc92394a4/src/_pytest/skipping.py#L88
-                globals_ = {
-                    "os": os,
-                    "sys": sys,
-                    "platform": platform,
-                    "config": item.config,
-                }
-
-                if hasattr(item, "ihook"):
-                    for dictionary in reversed(
-                        item.ihook.pytest_markeval_namespace(config=item.config)
-                    ):
-                        if not isinstance(dictionary, Mapping):
-                            raise ValueError(
-                                f"pytest_markeval_namespace() needs to return a dict, got {dictionary!r}"
-                            )
-                        globals_.update(dictionary)
-                if hasattr(item, "obj"):
-                    globals_.update(item.obj.__globals__)
-                filename = f"<{skipif_marker.name} condition>"
-                condition_code = compile(condition, filename, "eval")
-                # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
-                skip = eval(condition_code, globals_)
-            else:
-                skip = bool(condition)
-        else:
-            skip = False
-
         additional_attributes: typing.Dict[str, typing.Any] = {}
-        if skip:
+        if _should_skip_item(item):
             additional_attributes["test.case.result.status"] = "skipped"
             additional_attributes["cicd.test.quarantined"] = False
         else:
@@ -340,3 +306,45 @@ def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
 
 def pytest_configure(config: _pytest.config.Config) -> None:
     config.pluginmanager.register(PytestMergify(), name="PytestMergify")
+
+
+def _should_skip_item(item: _pytest.nodes.Item) -> bool:
+    if item.get_closest_marker("skip") is not None:
+        return True
+
+    skipif_marker = item.get_closest_marker("skipif")
+    if skipif_marker is None:
+        return False
+
+    condition = skipif_marker.args[0]
+    if not isinstance(condition, str):
+        return bool(condition)
+
+    # Mimics how pytest evaluate the conditions
+    # https://github.com/pytest-dev/pytest/blob/c5a75f2498c86850c4ce13bcf10d56efc92394a4/src/_pytest/skipping.py#L88
+    globals_ = {
+        "os": os,
+        "sys": sys,
+        "platform": platform,
+        "config": item.config,
+    }
+    if hasattr(item, "ihook"):
+        for dictionary in reversed(
+            item.ihook.pytest_markeval_namespace(config=item.config)
+        ):
+            if not isinstance(dictionary, Mapping):
+                raise ValueError(
+                    f"pytest_markeval_namespace() needs to return a dict, got {dictionary!r}"
+                )
+            globals_.update(dictionary)
+    if hasattr(item, "obj"):
+        globals_.update(item.obj.__globals__)
+
+    condition_code = compile(
+        source=condition,
+        filename=f"<{skipif_marker.name} condition>",
+        mode="eval",
+    )
+
+    # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
+    return bool(eval(condition_code, globals_))
