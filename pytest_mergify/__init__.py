@@ -131,6 +131,11 @@ class PytestMergify:
             test_duration_ms,
         ) in self.mergify_ci.new_test_durations_by_name.items():
             terminalreporter.write_line(f"  - {test_name} ({test_duration_ms}ms)")
+        terminalreporter.write_line(
+            f"Detected {len(self.mergify_ci.flaky_test_names)} new flaky tests"
+        )
+        for test_name in self.mergify_ci.flaky_test_names:
+            terminalreporter.write_line(f"  - {test_name}")
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
@@ -154,13 +159,17 @@ class PytestMergify:
         self.has_error = False
 
     def pytest_sessionfinish(self, session: _pytest.main.Session) -> None:
-        if self.tracer:
-            self.session_span.set_status(
-                opentelemetry.trace.StatusCode.ERROR
-                if self.has_error
-                else opentelemetry.trace.StatusCode.OK
-            )
-            self.session_span.end()
+        if not self.tracer:
+            return
+
+        self.mergify_ci.run_flaky_detection(session)
+
+        self.session_span.set_status(
+            opentelemetry.trace.StatusCode.ERROR
+            if self.has_error
+            else opentelemetry.trace.StatusCode.OK
+        )
+        self.session_span.end()
 
     def _attributes_from_item(
         self, item: _pytest.nodes.Item
