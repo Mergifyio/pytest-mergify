@@ -183,8 +183,12 @@ class MergifyCIInsights:
         self.new_test_durations_by_name[test_name] = test_duration_ms
 
     def is_flaky_detection_enabled(self) -> bool:
-        # NOTE(remyduthu): Hide behind a feature flag for now.
-        return utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
+        return (
+            self.token is not None
+            and self.repo_name is not None
+            # NOTE(remyduthu): Hide behind a feature flag for now.
+            and utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
+        )
 
     def is_flaky_detection_active(self) -> bool:
         return (
