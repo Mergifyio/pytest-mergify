@@ -72,7 +72,7 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @responses.activate
-def test_flaky_detection_detects_new_tests(
+def test_flaky_detection(
     monkeypatch: pytest.MonkeyPatch,
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
@@ -80,8 +80,8 @@ def test_flaky_detection_detects_new_tests(
     _make_quarantine_mock()
     _make_test_names_mock(
         [
-            "test_flaky_detection_detects_new_tests.py::test_foo",
-            "test_flaky_detection_detects_new_tests.py::test_unknown",
+            "test_flaky_detection.py::test_foo",
+            "test_flaky_detection.py::test_unknown",
         ]
     )
 
@@ -97,11 +97,11 @@ def test_flaky_detection_detects_new_tests(
         def test_bar():
             # Simulate a flaky test.
             global execution_count
-            if execution_count == 2:
-                pytest.fail("I'm flaky!")
-            
             execution_count += 1
-        
+
+            if execution_count == 1:
+                pytest.fail("I'm flaky!")
+
         def test_baz():
             assert True
 
@@ -109,22 +109,28 @@ def test_flaky_detection_detects_new_tests(
             pytest.skip("I'm skipped!")
         """
     )
+    result.assert_outcomes(
+        passed=2 + (2 * 5),  # 2 initial runs, 5 retries for each test.
+        failed=1,  # Only the first run of the flaky test.
+        skipped=1,  # Skipped tests are excluded from flaky detection.
+    )
 
     assert re.search(
         r"""Fetched 2 existing tests
 Detected 2 new tests
-  - test_flaky_detection_detects_new_tests\.py::test_bar \(\d+ms\)
-  - test_flaky_detection_detects_new_tests\.py::test_baz \(\d+ms\)""",
+  - test_flaky_detection\.py::test_bar \(\d+ms\)
+  - test_flaky_detection\.py::test_baz \(\d+ms\)""",
         result.stdout.str(),
         re.MULTILINE,
     )
 
     assert spans is not None
+    assert len(spans) == 15
     for test_name, expected in {
-        "test_flaky_detection_detects_new_tests.py::test_foo": False,
-        "test_flaky_detection_detects_new_tests.py::test_bar": True,
-        "test_flaky_detection_detects_new_tests.py::test_baz": True,
-        "test_flaky_detection_detects_new_tests.py::test_qux": False,
+        "test_flaky_detection.py::test_foo": False,
+        "test_flaky_detection.py::test_bar": True,
+        "test_flaky_detection.py::test_baz": True,
+        "test_flaky_detection.py::test_qux": False,
     }.items():
         span = spans.get(test_name)
 
