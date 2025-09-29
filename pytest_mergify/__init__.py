@@ -252,27 +252,6 @@ class PytestMergify:
                 )
             )
 
-    def _handle_flaky_detection_for_report(
-        self,
-        report: _pytest.reports.TestReport,
-    ) -> None:
-        if not self.mergify_ci.is_flaky_detection_active():
-            return
-
-        test_duration_ms = int(report.duration * 1000)
-        self.mergify_ci.total_test_durations_ms += test_duration_ms
-
-        test_name = report.nodeid
-        if test_name in self.mergify_ci.existing_test_names:
-            return
-
-        self.mergify_ci.add_new_test_duration(test_name, test_duration_ms)
-
-        if self.tracer:
-            opentelemetry.trace.get_current_span().set_attributes(
-                {"cicd.test.new": True}
-            )
-
     def pytest_runtest_logreport(self, report: _pytest.reports.TestReport) -> None:
         if self.tracer is None:
             return
@@ -299,7 +278,7 @@ class PytestMergify:
             }
         )
 
-        self._handle_flaky_detection_for_report(report)
+        self.mergify_ci.handle_flaky_detection_for_report(report)
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:

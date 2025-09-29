@@ -224,6 +224,27 @@ class MergifyCIInsights:
 
         return typing.cast(typing.List[str], response.json()["test_names"])
 
+    def handle_flaky_detection_for_report(
+        self,
+        report: _pytest.reports.TestReport,
+    ) -> None:
+        if not self.is_flaky_detection_active():
+            return
+
+        test_duration_ms = int(report.duration * 1000)
+        self.total_test_durations_ms += test_duration_ms
+
+        test_name = report.nodeid
+        if test_name in self.existing_test_names:
+            return
+
+        self.add_new_test_duration(test_name, test_duration_ms)
+
+        if self.tracer:
+            opentelemetry.trace.get_current_span().set_attributes(
+                {"cicd.test.new": True}
+            )
+
     def run_flaky_detection(self, session: _pytest.main.Session) -> None:
         if not self.is_flaky_detection_active():
             return
