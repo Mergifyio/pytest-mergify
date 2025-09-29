@@ -158,11 +158,19 @@ class PytestMergify:
             )
         self.has_error = False
 
-    def pytest_sessionfinish(self, session: _pytest.main.Session) -> None:
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_sessionfinish(
+        self,
+        session: _pytest.main.Session,
+    ) -> typing.Generator[None, None, None]:
         if not self.tracer:
+            yield
             return
 
+        # Execute flaky detection just before ending the session.
         self.mergify_ci.run_flaky_detection(session)
+
+        yield
 
         self.session_span.set_status(
             opentelemetry.trace.StatusCode.ERROR
