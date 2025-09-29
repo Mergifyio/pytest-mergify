@@ -21,7 +21,7 @@ def _get_git_url() -> typing.Optional[str]:
 def _get_repository_name() -> typing.Optional[str]:
     repository_url = _get_git_url()
     if repository_url:
-        utils.get_repository_name_from_url(repository_url)
+        return utils.get_repository_name_from_url(repository_url)
     return None
 
 
