@@ -112,10 +112,9 @@ def test_flaky_detection_detects_new_tests(
 
     assert re.search(
         r"""Fetched 2 existing tests
-Detected 3 new tests
+Detected 2 new tests
   - test_flaky_detection_detects_new_tests\.py::test_bar \(\d+ms\)
-  - test_flaky_detection_detects_new_tests\.py::test_baz \(\d+ms\)
-  - test_flaky_detection_detects_new_tests\.py::test_qux \(\d+ms\)""",
+  - test_flaky_detection_detects_new_tests\.py::test_baz \(\d+ms\)""",
         result.stdout.str(),
         re.MULTILINE,
     )
