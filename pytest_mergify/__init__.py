@@ -305,6 +305,14 @@ def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
 
 
 def pytest_configure(config: _pytest.config.Config) -> None:
+    # NOTE(remyduthu):
+    # We are using `isinstance` instead of `get_plugin` because the plugin can
+    # be registered with a different name (e.g. `pytester`). It feels safer to
+    # check the class name directly.
+    for plugin in config.pluginmanager.get_plugins():
+        if isinstance(plugin, PytestMergify):
+            return
+
     config.pluginmanager.register(PytestMergify(), name="PytestMergify")
 
 
