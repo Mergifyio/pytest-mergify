@@ -129,7 +129,6 @@ def test_span_git(
 ) -> None:
     monkeypatch.setenv("GITHUB_ACTIONS", "false")
     git.side_effect = [
-        "https://github.com/Mergifyio/pytest-mergify",
         "main",
         "azerty",
         "https://github.com/Mergifyio/pytest-mergify",
