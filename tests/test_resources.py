@@ -132,11 +132,14 @@ def test_span_git(
         "main",
         "azerty",
         "https://github.com/Mergifyio/pytest-mergify",
-        "main",
-        "azerty",
         "https://github.com/Mergifyio/pytest-mergify",
         "main",
         "azerty",
+        "https://github.com/Mergifyio/pytest-mergify",
+        "https://github.com/Mergifyio/pytest-mergify",
+        "main",
+        "azerty",
+        "https://github.com/Mergifyio/pytest-mergify",
         "https://github.com/Mergifyio/pytest-mergify",
     ]
 
@@ -145,6 +148,10 @@ def test_span_git(
     assert all(
         span.resource.attributes["vcs.repository.url.full"]
         == "https://github.com/Mergifyio/pytest-mergify"
+        for span in spans.values()
+    )
+    assert all(
+        span.resource.attributes["vcs.repository.name"] == "Mergifyio/pytest-mergify"
         for span in spans.values()
     )
     assert all(
