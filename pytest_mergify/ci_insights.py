@@ -249,7 +249,7 @@ class MergifyCIInsights:
         if not self.is_flaky_detection_active():
             return
 
-        for index, item in enumerate(session.items):
+        for item in session.items:
             if item.nodeid not in self.new_test_durations_by_name:
                 continue  # Only run for newly added tests.
 
