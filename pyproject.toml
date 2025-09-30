@@ -9,8 +9,8 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.8"
 # We set this version explicitly to avoid breaking changes
-opentelemetry-exporter-otlp-proto-http = ">=1.25"
-opentelemetry-sdk = ">=1.25"
+opentelemetry-exporter-otlp-proto-http = ">=1.29"
+opentelemetry-sdk = ">=1.29"
 requests = ">=2"
 pytest = ">=6.0.0"
 
