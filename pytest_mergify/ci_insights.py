@@ -209,7 +209,7 @@ class MergifyCIInsights:
 
     def _fetch_existing_test_names(self) -> typing.List[str]:
         if not self.token or not self.repo_name or not self.branch_name:
-            return []
+            raise ValueError("'token', 'repo_name' and 'branch_name' are required")
 
         owner, repository = utils.split_full_repo_name(self.repo_name)
 
