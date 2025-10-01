@@ -1,25 +1,24 @@
-import typing
 import datetime
-import uuid
-import re
-import os
-import responses
 import http.server
+import os
+import re
 import socketserver
 import threading
+import typing
+import uuid
 
-import pytest
-from pytest_mergify import utils
 import _pytest.pytester
+import pytest
+import responses
 from opentelemetry.sdk import trace
-
-import pytest_mergify
-import pytest_mergify.quarantine
-
+from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
-from opentelemetry.sdk.trace import ReadableSpan
+
+import pytest_mergify
+import pytest_mergify.quarantine
+from pytest_mergify import utils
 
 pytest_plugins = ["pytester"]
 
@@ -119,7 +118,7 @@ def pytester_with_spans(
             result.assert_outcomes(passed=1)
         if isinstance(plugin.mergify_ci.exporter, InMemorySpanExporter):
             spans = plugin.mergify_ci.exporter.get_finished_spans()
-            spans_as_dict = {span.name: span for span in spans}
+            spans_as_dict = _map_spans_to_dict(spans)
             # Make sure we don't lose spans in the process
             assert len(spans_as_dict) == len(spans)
         else:
@@ -128,6 +127,21 @@ def pytester_with_spans(
         return result, spans_as_dict
 
     return _run
+
+
+def _map_spans_to_dict(
+    spans: typing.Tuple[ReadableSpan, ...],
+) -> typing.Dict[str, ReadableSpan]:
+    result: typing.Dict[str, ReadableSpan] = {}
+
+    for span in spans:
+        if span.name not in result:
+            result[span.name] = span
+            continue
+
+        result[f"{span.name}.{span.start_time}.{span.end_time}"] = span
+
+    return result
 
 
 class TestHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
