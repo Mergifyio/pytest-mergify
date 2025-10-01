@@ -115,9 +115,7 @@ def test_flaky_detection_detects_new_tests(
 Detected 3 new tests
   - test_flaky_detection_detects_new_tests\.py::test_bar \(\d+ms\)
   - test_flaky_detection_detects_new_tests\.py::test_baz \(\d+ms\)
-  - test_flaky_detection_detects_new_tests\.py::test_qux \(\d+ms\)
-Detected 1 new flaky tests
-  - test_flaky_detection_detects_new_tests\.py::test_bar""",
+  - test_flaky_detection_detects_new_tests\.py::test_qux \(\d+ms\)""",
         result.stdout.str(),
         re.MULTILINE,
     )

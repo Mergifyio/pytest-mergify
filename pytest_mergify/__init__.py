@@ -131,11 +131,6 @@ class PytestMergify:
             test_duration_ms,
         ) in self.mergify_ci.new_test_durations_by_name.items():
             terminalreporter.write_line(f"  - {test_name} ({test_duration_ms}ms)")
-        terminalreporter.write_line(
-            f"Detected {len(self.mergify_ci.flaky_test_names)} new flaky tests"
-        )
-        for test_name in self.mergify_ci.flaky_test_names:
-            terminalreporter.write_line(f"  - {test_name}")
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
