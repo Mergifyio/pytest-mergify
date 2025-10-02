@@ -110,7 +110,7 @@ def test_flaky_detection(
         """
     )
     result.assert_outcomes(
-        passed=2 + (2 * 5),  # 2 initial runs, 5 retries for each test.
+        passed=2 + (2 * 1000),  # 2 initial runs, 1000 retries for each test.
         failed=1,  # Only the first run of the flaky test.
         skipped=1,  # Skipped tests are excluded from flaky detection.
     )
@@ -125,7 +125,7 @@ Detected 2 new tests
     )
 
     assert spans is not None
-    assert len(spans) == 15
+    assert len(spans) == 2005
     for test_name, expected in {
         "test_flaky_detection.py::test_foo": False,
         "test_flaky_detection.py::test_bar": True,
@@ -138,3 +138,64 @@ Detected 2 new tests
         assert span.attributes is not None
         if expected:
             assert span.attributes.get("cicd.test.new")
+
+
+@pytest.mark.parametrize(
+    argnames=[
+        "total_test_durations_ms",
+        "test_duration_ms",
+        "expected_retry_count",
+    ],
+    argvalues=[
+        pytest.param(
+            1000,
+            3,
+            ci_insights._DEFAULT_TEST_RETRY_BUDGET[range(0, 1)],
+            id="Very fast test",
+        ),
+        pytest.param(
+            1000,
+            20,
+            ci_insights._DEFAULT_TEST_RETRY_BUDGET[range(1, 5)],
+            id="Fast test",
+        ),
+        pytest.param(
+            1000,
+            70,
+            ci_insights._DEFAULT_TEST_RETRY_BUDGET[range(5, 10)],
+            id="Moderate test",
+        ),
+        pytest.param(
+            1000,
+            500,
+            ci_insights._DEFAULT_TEST_RETRY_BUDGET[range(10, 100)],
+            id="Slow test",
+        ),
+        pytest.param(
+            2000,
+            3,
+            ci_insights._DEFAULT_TEST_RETRY_BUDGET[range(0, 1)],
+            id="Very fast test with higher total duration",
+        ),
+        pytest.param(
+            20000,
+            20,
+            ci_insights._DEFAULT_TEST_RETRY_BUDGET[range(0, 1)],
+            id="Fast test with higher total duration",
+        ),
+    ],
+)
+def test_compute_test_retry_count(
+    total_test_durations_ms: int,
+    test_duration_ms: int,
+    expected_retry_count: int,
+) -> None:
+    assert (
+        ci_insights._get_retry_count_for_cost(
+            ci_insights._compute_test_retry_cost(
+                total_test_durations_ms=total_test_durations_ms,
+                test_duration_ms=test_duration_ms,
+            )
+        )
+        == expected_retry_count
+    )

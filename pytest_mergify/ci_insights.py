@@ -258,7 +258,14 @@ class MergifyCIInsights:
         self,
         item: _pytest.nodes.Item,
     ) -> None:
-        for _ in range(5):  # NOTE(remyduthu): Hard-coded value for now.
+        for _ in range(
+            _get_retry_count_for_cost(
+                _compute_test_retry_cost(
+                    self.total_test_durations_ms,
+                    self.new_test_durations_by_name[item.nodeid],
+                )
+            )
+        ):
             item.ihook.pytest_runtest_protocol(item=item, nextitem=None)
 
     def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
@@ -270,3 +277,59 @@ class MergifyCIInsights:
             return True
 
         return False
+
+
+_FAST_TEST_DURATION_MS = 5
+_MIN_TEST_RETRY_COST = 0
+_MAX_TEST_RETRY_COST = 100
+
+
+def _compute_test_retry_cost(
+    total_test_durations_ms: int,
+    test_duration_ms: int,
+) -> int:
+    """
+    Calculate the retry cost for a test based on its duration.
+
+    Fast tests (under '_FAST_TEST_DURATION_MS') get a minimum cost to avoid
+    penalizing quick tests. Slower tests get a cost relative to their duration
+    compared to the total test suite duration, ensuring that retrying
+    long-running tests is appropriately weighted.
+    """
+
+    if test_duration_ms <= _FAST_TEST_DURATION_MS:
+        return _MIN_TEST_RETRY_COST
+
+    if total_test_durations_ms == 0:
+        return _MAX_TEST_RETRY_COST  # Be safe.
+
+    return int((test_duration_ms / total_test_durations_ms) * _MAX_TEST_RETRY_COST)
+
+
+# NOTE(remyduthu): We are using a hard-coded budget for now, but the idea is to
+# make it configurable in the future.
+_DEFAULT_TEST_RETRY_BUDGET = {
+    range(_MIN_TEST_RETRY_COST, 1): 1000,
+    range(1, 5): 100,
+    range(5, 10): 10,
+    range(10, _MAX_TEST_RETRY_COST): 2,
+}
+
+
+def _get_retry_count_for_cost(
+    cost: int,
+    budget: typing.Dict[range, int] = _DEFAULT_TEST_RETRY_BUDGET,
+) -> int:
+    """
+    Determine how many retries a test should get based on its execution cost and
+    available budget.
+
+    The budget maps cost ranges to retry counts, allowing expensive tests to be
+    retried less frequently than cheap ones to optimize CI resource usage.
+    """
+
+    for cost_range, retry_count in budget.items():
+        if cost in cost_range:
+            return retry_count
+
+    return 0
