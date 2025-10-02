@@ -54,8 +54,8 @@ def test_load_flaky_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     _make_test_names_mock(test_names=["a::test_a", "b::test_b"])
 
     client = _make_test_client()
-    assert not client.flaky_detection_error_message
-    assert client.existing_test_names == ["a::test_a", "b::test_b"]
+    assert not client._flaky_detection_error_message
+    assert client._existing_test_names == ["a::test_a", "b::test_b"]
 
 
 @responses.activate
@@ -66,9 +66,9 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
     _make_test_names_mock(status=500)
 
     client = _make_test_client()
-    assert not client.existing_test_names
-    assert client.flaky_detection_error_message is not None
-    assert "500 Server Error" in client.flaky_detection_error_message
+    assert not client._existing_test_names
+    assert client._flaky_detection_error_message is not None
+    assert "500 Server Error" in client._flaky_detection_error_message
 
 
 @responses.activate
@@ -109,23 +109,34 @@ def test_flaky_detection(
             pytest.skip("I'm skipped!")
         """
     )
-    result.assert_outcomes(
-        passed=2 + (2 * 5),  # 2 initial runs, 5 retries for each test.
-        failed=1,  # Only the first run of the flaky test.
-        skipped=1,  # Skipped tests are excluded from flaky detection.
-    )
+
+    outcomes = result.parseoutcomes()
+
+    # We can't predict the exact number because it depends on the time it takes
+    # to run the tests. We just want to make sure that the tests are tested
+    # multiple time.
+    assert outcomes["passed"] > 1000
+
+    # Only the first run of the flaky test.
+    assert outcomes["failed"] == 1
+
+    # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
+    assert outcomes["skipped"] == 1
 
     assert re.search(
-        r"""Fetched 2 existing tests
-Detected 2 new tests
-  - test_flaky_detection\.py::test_bar \(\d+ms\)
-  - test_flaky_detection\.py::test_baz \(\d+ms\)""",
+        r"""🐛 Flaky detection
+- We applied flaky detection on 2 new test\(s\):
+    • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. \d+\.\d+ % of the budget \(\d+ ms/\d+ ms\)
+    • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. \d+\.\d+ % of the budget \(\d+ ms/\d+ ms\)""",
         result.stdout.str(),
         re.MULTILINE,
     )
 
     assert spans is not None
-    assert len(spans) == 15
+
+    # 1 span for the session and one per test.
+    assert len(spans) == 1 + sum(outcomes.values())
+
     for test_name, expected in {
         "test_flaky_detection.py::test_foo": False,
         "test_flaky_detection.py::test_bar": True,

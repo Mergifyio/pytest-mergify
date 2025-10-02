@@ -1,9 +1,12 @@
 import dataclasses
+import datetime
 import os
 import random
 import typing
 
+import _pytest.main
 import _pytest.nodes
+import _pytest.terminal
 import opentelemetry.sdk.resources
 import requests
 from opentelemetry.exporter.otlp.proto.http import Compression
@@ -49,6 +52,13 @@ class SessionHardRaiser(requests.Session):  # type: ignore[misc]
         return response
 
 
+# NOTE(remyduthu): We are using a hard-coded budget for now, but the idea is to
+# make it configurable in the future.
+_DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
+_MAX_TEST_RETRY_COUNT = 1000
+_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=1)
+
+
 @dataclasses.dataclass
 class MergifyCIInsights:
     token: typing.Optional[str] = dataclasses.field(
@@ -79,17 +89,20 @@ class MergifyCIInsights:
         init=False,
         default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex(),
     )
-    existing_test_names: typing.List[str] = dataclasses.field(
+    _existing_test_names: typing.List[str] = dataclasses.field(
         init=False,
         default_factory=list,
     )
-    flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
+    _flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
         init=False,
         default=None,
     )
-    total_test_durations_ms: int = dataclasses.field(init=False, default=0)
-    new_test_durations_by_name: typing.Dict[str, int] = dataclasses.field(
+    _total_test_durations_ms: int = dataclasses.field(init=False, default=0)
+    _new_test_durations_by_name: typing.Dict[str, int] = dataclasses.field(
         init=False, default_factory=dict
+    )
+    _new_test_retry_count_by_name: typing.DefaultDict[str, int] = dataclasses.field(
+        init=False, default_factory=lambda: typing.DefaultDict(int)
     )
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
         dataclasses.field(
@@ -172,13 +185,13 @@ class MergifyCIInsights:
                 self.branch_name,
             )
 
-    def add_new_test_duration(self, test_name: str, test_duration_ms: int) -> None:
-        if test_name in self.new_test_durations_by_name:
+    def _add_new_test_duration(self, test_name: str, test_duration_ms: int) -> None:
+        if test_name in self._new_test_durations_by_name:
             return
 
-        self.new_test_durations_by_name[test_name] = test_duration_ms
+        self._new_test_durations_by_name[test_name] = test_duration_ms
 
-    def is_flaky_detection_enabled(self) -> bool:
+    def _is_flaky_detection_enabled(self) -> bool:
         return (
             self.token is not None
             and self.repo_name is not None
@@ -186,20 +199,20 @@ class MergifyCIInsights:
             and utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
         )
 
-    def is_flaky_detection_active(self) -> bool:
+    def _is_flaky_detection_active(self) -> bool:
         return (
-            self.is_flaky_detection_enabled()
-            and self.flaky_detection_error_message is None
+            self._is_flaky_detection_enabled()
+            and self._flaky_detection_error_message is None
         )
 
     def _load_flaky_detection(self) -> None:
-        if not self.is_flaky_detection_enabled():
+        if not self._is_flaky_detection_enabled():
             return
 
         try:
-            self.existing_test_names = self._fetch_existing_test_names()
+            self._existing_test_names = self._fetch_existing_test_names()
         except Exception as exception:
-            self.flaky_detection_error_message = (
+            self._flaky_detection_error_message = (
                 f"Could not fetch existing test names: {str(exception)}"
             )
 
@@ -220,24 +233,59 @@ class MergifyCIInsights:
 
         return typing.cast(typing.List[str], response.json()["test_names"])
 
+    def report_flaky_detection(
+        self,
+        terminalreporter: _pytest.terminal.TerminalReporter,
+    ) -> None:
+        if not self._is_flaky_detection_enabled():
+            return
+
+        if self._flaky_detection_error_message:
+            terminalreporter.write_line(
+                f"Unable to perform flaky detection. Error: {self._flaky_detection_error_message}",
+                yellow=True,
+            )
+
+            return
+
+        budget_duration_ms = int(self._get_budget_duration().total_seconds() * 1000)
+
+        message = "🐛 Flaky detection"
+        if self._new_test_durations_by_name:
+            message += f"{os.linesep}- We applied flaky detection on {len(self._new_test_durations_by_name)} new test(s):"
+            for test_name, retry_count in self._new_test_retry_count_by_name.items():
+                test_retry_duration_ms = (
+                    self._new_test_durations_by_name[test_name] * retry_count
+                )
+
+                message += (
+                    f"{os.linesep}    • '{test_name}' has been tested {retry_count} "
+                    f"times using approx. {test_retry_duration_ms / budget_duration_ms * 100:.1f} % "
+                    f"of the budget ({test_retry_duration_ms} ms/{budget_duration_ms} ms)"
+                )
+        else:
+            message += f"{os.linesep}- No new tests detected, but we are watching 👀"
+
+        terminalreporter.write_line(message)
+
     def handle_flaky_detection_for_report(
         self,
         report: _pytest.reports.TestReport,
     ) -> None:
-        if not self.is_flaky_detection_active():
+        if not self._is_flaky_detection_active():
             return
 
         if report.outcome not in ["failed", "passed"]:
             return
 
         test_duration_ms = int(report.duration * 1000)
-        self.total_test_durations_ms += test_duration_ms
+        self._total_test_durations_ms += test_duration_ms
 
         test_name = report.nodeid
-        if test_name in self.existing_test_names:
+        if test_name in self._existing_test_names:
             return
 
-        self.add_new_test_duration(test_name, test_duration_ms)
+        self._add_new_test_duration(test_name, test_duration_ms)
 
         if self.tracer:
             opentelemetry.trace.get_current_span().set_attributes(
@@ -245,21 +293,64 @@ class MergifyCIInsights:
             )
 
     def run_flaky_detection(self, session: _pytest.main.Session) -> None:
-        if not self.is_flaky_detection_active():
+        if not self._is_flaky_detection_active():
             return
 
-        for item in session.items:
-            if item.nodeid not in self.new_test_durations_by_name:
-                continue  # Only run for newly added tests.
+        new_items = [
+            item
+            for item in session.items
+            if item.nodeid in self._new_test_durations_by_name
+        ]
 
-            self._run_flaky_detection_for_item(item)
+        budget_deadline = (
+            datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
+        )
 
-    def _run_flaky_detection_for_item(
-        self,
-        item: _pytest.nodes.Item,
-    ) -> None:
-        for _ in range(5):  # NOTE(remyduthu): Hard-coded value for now.
-            item.ihook.pytest_runtest_protocol(item=item, nextitem=None)
+        while datetime.datetime.now(datetime.timezone.utc) <= budget_deadline:
+            items_to_retry = [
+                item for item in new_items if self._should_retry_test(item.nodeid)
+            ]
+            if not items_to_retry:
+                break
+
+            # NOTE:
+            #   We are running each test once at each iteration until the budget
+            #   is exhausted.
+            for item in items_to_retry:
+                self._new_test_retry_count_by_name[item.nodeid] += 1
+                item.ihook.pytest_runtest_protocol(item=item, nextitem=None)
+
+    def _get_budget_duration(self) -> datetime.timedelta:
+        """
+        Calculate the budget duration based on a percentage of total test
+        execution time.
+
+        The budget ensures there's always a minimum time allocated of
+        '_MIN_TEST_RETRY_BUDGET_DURATION_MS' even for very short test suites,
+        preventing overly restrictive retry policies when the total test
+        duration is small.
+        """
+        return max(
+            datetime.timedelta(
+                milliseconds=int(
+                    _DEFAULT_TEST_RETRY_BUDGET_RATIO * self._total_test_durations_ms
+                )
+            ),
+            _MIN_TEST_RETRY_BUDGET_DURATION,
+        )
+
+    def _should_retry_test(self, test_name: str) -> bool:
+        """
+        Determine if a test should be retried based on whether it has exceeded
+        the maximum retry limit of `_MAX_TEST_RETRY_COUNT`.
+
+        This check prevents really fast tests from being retried too many times
+        which would be useless.
+        """
+        return (
+            self._new_test_retry_count_by_name.get(test_name, 0)
+            <= _MAX_TEST_RETRY_COUNT
+        )
 
     def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
         """
