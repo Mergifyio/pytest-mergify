@@ -1,4 +1,3 @@
-import re
 import typing
 
 import pytest
@@ -54,8 +53,8 @@ def test_load_flaky_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     _make_test_names_mock(test_names=["a::test_a", "b::test_b"])
 
     client = _make_test_client()
-    assert not client.flaky_detection_error_message
-    assert client.existing_test_names == ["a::test_a", "b::test_b"]
+    assert not client._flaky_detection_error_message
+    assert client._existing_test_names == ["a::test_a", "b::test_b"]
 
 
 @responses.activate
@@ -66,9 +65,9 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
     _make_test_names_mock(status=500)
 
     client = _make_test_client()
-    assert not client.existing_test_names
-    assert client.flaky_detection_error_message is not None
-    assert "500 Server Error" in client.flaky_detection_error_message
+    assert not client._existing_test_names
+    assert client._flaky_detection_error_message is not None
+    assert "500 Server Error" in client._flaky_detection_error_message
 
 
 @responses.activate
@@ -115,14 +114,7 @@ def test_flaky_detection(
         skipped=1,  # Skipped tests are excluded from flaky detection.
     )
 
-    assert re.search(
-        r"""Fetched 2 existing tests
-Detected 2 new tests
-  - test_flaky_detection\.py::test_bar \(\d+ms\)
-  - test_flaky_detection\.py::test_baz \(\d+ms\)""",
-        result.stdout.str(),
-        re.MULTILINE,
-    )
+    assert "Flaky detection is active" in result.stdout.str()
 
     assert spans is not None
     assert len(spans) == 2005

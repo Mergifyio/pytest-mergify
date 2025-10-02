@@ -4,6 +4,7 @@ import random
 import typing
 
 import _pytest.nodes
+import _pytest.terminal
 import opentelemetry.sdk.resources
 import requests
 from opentelemetry.exporter.otlp.proto.http import Compression
@@ -79,16 +80,16 @@ class MergifyCIInsights:
         init=False,
         default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex(),
     )
-    existing_test_names: typing.List[str] = dataclasses.field(
+    _existing_test_names: typing.List[str] = dataclasses.field(
         init=False,
         default_factory=list,
     )
-    flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
+    _flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
         init=False,
         default=None,
     )
-    total_test_durations_ms: int = dataclasses.field(init=False, default=0)
-    new_test_durations_by_name: typing.Dict[str, int] = dataclasses.field(
+    _total_test_durations_ms: int = dataclasses.field(init=False, default=0)
+    _new_test_durations_by_name: typing.Dict[str, int] = dataclasses.field(
         init=False, default_factory=dict
     )
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
@@ -172,13 +173,13 @@ class MergifyCIInsights:
                 self.branch_name,
             )
 
-    def add_new_test_duration(self, test_name: str, test_duration_ms: int) -> None:
-        if test_name in self.new_test_durations_by_name:
+    def _add_new_test_duration(self, test_name: str, test_duration_ms: int) -> None:
+        if test_name in self._new_test_durations_by_name:
             return
 
-        self.new_test_durations_by_name[test_name] = test_duration_ms
+        self._new_test_durations_by_name[test_name] = test_duration_ms
 
-    def is_flaky_detection_enabled(self) -> bool:
+    def _is_flaky_detection_enabled(self) -> bool:
         return (
             self.token is not None
             and self.repo_name is not None
@@ -186,20 +187,20 @@ class MergifyCIInsights:
             and utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
         )
 
-    def is_flaky_detection_active(self) -> bool:
+    def _is_flaky_detection_active(self) -> bool:
         return (
-            self.is_flaky_detection_enabled()
-            and self.flaky_detection_error_message is None
+            self._is_flaky_detection_enabled()
+            and self._flaky_detection_error_message is None
         )
 
     def _load_flaky_detection(self) -> None:
-        if not self.is_flaky_detection_enabled():
+        if not self._is_flaky_detection_enabled():
             return
 
         try:
-            self.existing_test_names = self._fetch_existing_test_names()
+            self._existing_test_names = self._fetch_existing_test_names()
         except Exception as exception:
-            self.flaky_detection_error_message = (
+            self._flaky_detection_error_message = (
                 f"Could not fetch existing test names: {str(exception)}"
             )
 
@@ -220,24 +221,41 @@ class MergifyCIInsights:
 
         return typing.cast(typing.List[str], response.json()["test_names"])
 
+    def report_flaky_detection(
+        self,
+        terminalreporter: _pytest.terminal.TerminalReporter,
+    ) -> None:
+        if not self._is_flaky_detection_enabled():
+            return
+
+        if self._flaky_detection_error_message:
+            terminalreporter.write_line(
+                f"Unable to perform flaky detection. Error: {self._flaky_detection_error_message}",
+                yellow=True,
+            )
+
+            return
+
+        terminalreporter.write_line("Flaky detection is active")
+
     def handle_flaky_detection_for_report(
         self,
         report: _pytest.reports.TestReport,
     ) -> None:
-        if not self.is_flaky_detection_active():
+        if not self._is_flaky_detection_active():
             return
 
         if report.outcome not in ["failed", "passed"]:
             return
 
         test_duration_ms = int(report.duration * 1000)
-        self.total_test_durations_ms += test_duration_ms
+        self._total_test_durations_ms += test_duration_ms
 
         test_name = report.nodeid
-        if test_name in self.existing_test_names:
+        if test_name in self._existing_test_names:
             return
 
-        self.add_new_test_duration(test_name, test_duration_ms)
+        self._add_new_test_duration(test_name, test_duration_ms)
 
         if self.tracer:
             opentelemetry.trace.get_current_span().set_attributes(
@@ -245,11 +263,11 @@ class MergifyCIInsights:
             )
 
     def run_flaky_detection(self, session: _pytest.main.Session) -> None:
-        if not self.is_flaky_detection_active():
+        if not self._is_flaky_detection_active():
             return
 
         for item in session.items:
-            if item.nodeid not in self.new_test_durations_by_name:
+            if item.nodeid not in self._new_test_durations_by_name:
                 continue  # Only run for newly added tests.
 
             self._run_flaky_detection_for_item(item)
@@ -261,8 +279,8 @@ class MergifyCIInsights:
         for _ in range(
             _get_retry_count_for_cost(
                 _compute_test_retry_cost(
-                    self.total_test_durations_ms,
-                    self.new_test_durations_by_name[item.nodeid],
+                    self._total_test_durations_ms,
+                    self._new_test_durations_by_name[item.nodeid],
                 )
             )
         ):
