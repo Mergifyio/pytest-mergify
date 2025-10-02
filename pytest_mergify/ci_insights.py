@@ -227,6 +227,9 @@ class MergifyCIInsights:
         if not self.is_flaky_detection_active():
             return
 
+        if report.outcome not in ["failed", "passed"]:
+            return
+
         test_duration_ms = int(report.duration * 1000)
         self.total_test_durations_ms += test_duration_ms
 
