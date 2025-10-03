@@ -242,7 +242,14 @@ class MergifyCIInsights:
 
         if self._flaky_detection_error_message:
             terminalreporter.write_line(
-                f"Unable to perform flaky detection. Error: {self._flaky_detection_error_message}",
+                f"""⚠️  Flaky detection couldn't be enabled because of an error.
+
+Common issues:
+  • Your 'MERGIFY_TOKEN' might not be set or could be invalid
+  • There might be a network connectivity issue with the Mergify API
+
+📚 Documentation: https://docs.mergify.com/ci-insights/test-frameworks/pytest/
+🔍 Details: {self._flaky_detection_error_message}""",
                 yellow=True,
             )
 
