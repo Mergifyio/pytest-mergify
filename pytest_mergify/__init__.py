@@ -54,7 +54,7 @@ class PytestMergify:
             )
             return
 
-        self._report_flaky_detection(terminalreporter)
+        self.mergify_ci.report_flaky_detection(terminalreporter)
 
         # CI Insights Quarantine warning logs
         if not self.mergify_ci.branch_name:
@@ -101,36 +101,6 @@ class PytestMergify:
                     f"Error while shutting down the tracer: {e}",
                     red=True,
                 )
-
-    def _report_flaky_detection(
-        self,
-        terminalreporter: _pytest.terminal.TerminalReporter,
-    ) -> None:
-        if not self.mergify_ci.is_flaky_detection_enabled():
-            return
-
-        if self.mergify_ci.flaky_detection_error_message:
-            terminalreporter.write_line(
-                f"Unable to perform flaky detection. Error: {self.mergify_ci.flaky_detection_error_message}",
-                yellow=True,
-            )
-
-            return
-
-        # NOTE(remyduthu):
-        # The following logs are temporary.
-        # We'll automatically retry newly added tests to detect flakiness.
-        terminalreporter.write_line(
-            f"Fetched {len(self.mergify_ci.existing_test_names)} existing tests",
-        )
-        terminalreporter.write_line(
-            f"Detected {len(self.mergify_ci.new_test_durations_by_name)} new tests"
-        )
-        for (
-            test_name,
-            test_duration_ms,
-        ) in self.mergify_ci.new_test_durations_by_name.items():
-            terminalreporter.write_line(f"  - {test_name} ({test_duration_ms}ms)")
 
     @property
     def tracer(self) -> typing.Optional[opentelemetry.trace.Tracer]:
