@@ -55,6 +55,7 @@ class SessionHardRaiser(requests.Session):  # type: ignore[misc]
 # NOTE(remyduthu): We are using a hard-coded budget for now, but the idea is to
 # make it configurable in the future.
 _DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
+_MAX_TEST_NAME_LENGTH = 65536
 _MIN_TEST_RETRY_COUNT = 5
 _MAX_TEST_RETRY_COUNT = 1000
 _MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=1)
@@ -106,6 +107,10 @@ class MergifyCIInsights:
     )
     _new_test_retry_count_by_name: typing.DefaultDict[str, int] = dataclasses.field(
         init=False, default_factory=lambda: typing.DefaultDict(int)
+    )
+    _over_length_test_names: typing.Set[str] = dataclasses.field(
+        init=False,
+        default_factory=set,
     )
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
         dataclasses.field(
@@ -196,6 +201,10 @@ class MergifyCIInsights:
         if test_name in self._new_test_durations_by_name:
             return
 
+        if len(test_name) > _MAX_TEST_NAME_LENGTH:
+            self._over_length_test_names.add(test_name)
+            return
+
         self._new_test_durations_by_name[test_name] = test_duration
 
     def _is_flaky_detection_enabled(self) -> bool:
@@ -266,6 +275,17 @@ Common issues:
 
     def _get_flaky_detection_report_message(self) -> str:
         result = "🐛 Flaky detection"
+        if self._over_length_test_names:
+            result += (
+                f"{os.linesep}- Skipped {len(self._over_length_test_names)} test(s):"
+            )
+            for name in self._over_length_test_names:
+                result += (
+                    f"{os.linesep}    • '{name}' has not been tested multiple "
+                    f"times because the name of the test exceeds our limit of "
+                    f"{_MAX_TEST_NAME_LENGTH} characters"
+                )
+
         if not self._new_test_durations_by_name:
             result += f"{os.linesep}- No new tests detected, but we are watching 👀"
 
