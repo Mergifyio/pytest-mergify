@@ -87,7 +87,7 @@ def test_flaky_detection(
     )
 
     result, spans = pytester_with_spans(
-        code="""
+        code=f"""
         import pytest
 
         def test_foo():
@@ -108,6 +108,9 @@ def test_flaky_detection(
 
         def test_qux():
             pytest.skip("I'm skipped!")
+
+        def test_quux_{"a" * (ci_insights._MAX_TEST_NAME_LENGTH + 10)}():
+            assert True
         """
     )
 
@@ -126,6 +129,8 @@ def test_flaky_detection(
 
     assert re.search(
         r"""🐛 Flaky detection
+- Skipped 1 test\(s\):
+    • 'test_flaky_detection\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
 - Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
 - Active for 2 new test\(s\):
     • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
