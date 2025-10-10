@@ -348,29 +348,43 @@ Common issues:
                 {"cicd.test.new": True}
             )
 
-    def run_flaky_detection(self, session: _pytest.main.Session) -> None:
+    def get_pending_flaky_detection_items(
+        self,
+        session: _pytest.main.Session,
+    ) -> typing.List[_pytest.nodes.Item]:
+        """
+        Return the remaining retry items for this session based on the current
+        state of the flaky detection. It can be called multiple times as we
+        track already scheduled retries so we only return what's still needed.
+        """
         if not self._is_flaky_detection_active():
-            return
+            return []
 
         allocation = _allocate_test_retries(
             self._get_budget_duration(),
             self._new_test_durations_by_name,
         )
+
         items_to_retry = [item for item in session.items if item.nodeid in allocation]
 
-        # This deadline acts as an additional security measure to make sure
-        # we'll not exceed the actual budget even if a test takes more time to
-        # run than expected.
-        budget_deadline = (
+        result = []
+        for item in items_to_retry:
+            expected_retries = int(allocation[item.nodeid])
+            existing_retries = int(
+                self._new_test_retry_count_by_name.get(item.nodeid, 0),
+            )
+
+            remaining_retries = max(0, expected_retries - existing_retries)
+            for _ in range(remaining_retries):
+                self._new_test_retry_count_by_name[item.nodeid] += 1
+                result.append(item)
+
+        return result
+
+    def get_budget_deadline(self) -> datetime.datetime:
+        return (
             datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
         )
-        for item in items_to_retry:
-            for _ in range(allocation[item.nodeid]):
-                if datetime.datetime.now(datetime.timezone.utc) > budget_deadline:
-                    return
-
-                self._new_test_retry_count_by_name[item.nodeid] += 1
-                item.ihook.pytest_runtest_protocol(item=item, nextitem=None)
 
     def _get_budget_duration(self) -> datetime.timedelta:
         """
