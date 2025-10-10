@@ -444,6 +444,13 @@ def _allocate_test_retries(
 
         budget_per_test = remaining_budget / remaining_test_count
 
+        # Guard against zero or negative duration to prevent division by zero.
+        # If a test reports a zero duration, it means it's effectively free to
+        # retry, so we assign the maximum allowed retries within our global cap.
+        if duration <= datetime.timedelta():
+            allocation[test] = _MAX_TEST_RETRY_COUNT
+            continue
+
         allocation[test] = min(budget_per_test // duration, _MAX_TEST_RETRY_COUNT)
 
     return allocation
