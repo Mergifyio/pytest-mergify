@@ -218,6 +218,8 @@ class MergifyCIInsights:
     def _is_flaky_detection_active(self) -> bool:
         return (
             self._is_flaky_detection_enabled()
+            # Flaky detection should be disabled if we don't have any data for the base branch.
+            and len(self._existing_test_names) > 0
             and self._flaky_detection_error_message is None
         )
 
