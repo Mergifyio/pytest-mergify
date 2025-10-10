@@ -90,6 +90,19 @@ def test_flaky_detection(
         code=f"""
         import pytest
 
+        SESSION_ALREADY_SET = False
+
+        @pytest.fixture(scope="session", autouse=True)
+        def _setup_session() -> None:
+            global SESSION_ALREADY_SET
+            if SESSION_ALREADY_SET:
+                raise RuntimeError("This function should not be called twice")
+            SESSION_ALREADY_SET = True
+
+        @pytest.fixture(autouse=True)
+        def _setup_test() -> None:
+            pass
+
         def test_foo():
             assert True
 
@@ -110,6 +123,9 @@ def test_flaky_detection(
             pytest.skip("I'm skipped!")
 
         def test_quux_{"a" * (ci_insights._MAX_TEST_NAME_LENGTH + 10)}():
+            assert True
+
+        def test_corge():
             assert True
         """
     )
@@ -132,9 +148,10 @@ def test_flaky_detection(
 - Skipped 1 test\(s\):
     • 'test_flaky_detection\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
 - Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-- Active for 2 new test\(s\):
+- Active for 3 new test\(s\):
     • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-    • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
+    • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+    • 'test_flaky_detection\.py::test_corge' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
         result.stdout.str(),
         re.MULTILINE,
     )
