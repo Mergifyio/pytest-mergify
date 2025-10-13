@@ -60,7 +60,7 @@ class FlakyDetector:
                 "repository": repository_name,
                 "branch": self.branch_name,
             },
-            timeout=10,
+            timeout=30,
         )
 
         response.raise_for_status()
