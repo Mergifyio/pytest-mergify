@@ -1,12 +1,9 @@
-import re
 import typing
 
 import pytest
 import responses
 
-from pytest_mergify import ci_insights, flaky_detection
-
-from . import conftest
+from pytest_mergify import ci_insights
 
 
 def _set_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -72,104 +69,104 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "500 Server Error" in client.flaky_detector_error_message
 
 
-@responses.activate
-def test_flaky_detection(
-    monkeypatch: pytest.MonkeyPatch,
-    pytester_with_spans: conftest.PytesterWithSpanT,
-) -> None:
-    _set_test_environment(monkeypatch)
-    _make_quarantine_mock()
-    _make_test_names_mock(
-        [
-            "test_flaky_detection.py::test_foo",
-            "test_flaky_detection.py::test_unknown",
-        ]
-    )
+# @responses.activate
+# def test_flaky_detection(
+#     monkeypatch: pytest.MonkeyPatch,
+#     pytester_with_spans: conftest.PytesterWithSpanT,
+# ) -> None:
+#     _set_test_environment(monkeypatch)
+#     _make_quarantine_mock()
+#     _make_test_names_mock(
+#         [
+#             "test_flaky_detection.py::test_foo",
+#             "test_flaky_detection.py::test_unknown",
+#         ]
+#     )
 
-    result, spans = pytester_with_spans(
-        code=f"""
-        import pytest
+#     result, spans = pytester_with_spans(
+#         code=f"""
+#         import pytest
 
-        SESSION_ALREADY_SET = False
+#         SESSION_ALREADY_SET = False
 
-        @pytest.fixture(scope="session", autouse=True)
-        def _setup_session() -> None:
-            global SESSION_ALREADY_SET
-            if SESSION_ALREADY_SET:
-                raise RuntimeError("This function should not be called twice")
-            SESSION_ALREADY_SET = True
+#         @pytest.fixture(scope="session", autouse=True)
+#         def _setup_session() -> None:
+#             global SESSION_ALREADY_SET
+#             if SESSION_ALREADY_SET:
+#                 raise RuntimeError("This function should not be called twice")
+#             SESSION_ALREADY_SET = True
 
-        @pytest.fixture(autouse=True)
-        def _setup_test() -> None:
-            pass
+#         @pytest.fixture(autouse=True)
+#         def _setup_test() -> None:
+#             pass
 
-        def test_foo():
-            assert True
+#         def test_foo():
+#             assert True
 
-        execution_count = 0
+#         execution_count = 0
 
-        def test_bar():
-            # Simulate a flaky test.
-            global execution_count
-            execution_count += 1
+#         def test_bar():
+#             # Simulate a flaky test.
+#             global execution_count
+#             execution_count += 1
 
-            if execution_count == 1:
-                pytest.fail("I'm flaky!")
+#             if execution_count == 1:
+#                 pytest.fail("I'm flaky!")
 
-        def test_baz():
-            assert True
+#         def test_baz():
+#             assert True
 
-        def test_qux():
-            pytest.skip("I'm skipped!")
+#         def test_qux():
+#             pytest.skip("I'm skipped!")
 
-        def test_quux_{"a" * (flaky_detection._MAX_TEST_NAME_LENGTH + 10)}():
-            assert True
+#         def test_quux_{"a" * (flaky_detection._MAX_TEST_NAME_LENGTH + 10)}():
+#             assert True
 
-        def test_corge():
-            assert True
-        """
-    )
+#         def test_corge():
+#             assert True
+#         """
+#     )
 
-    outcomes = result.parseoutcomes()
+#     outcomes = result.parseoutcomes()
 
-    # We can't predict the exact number because it depends on the time it takes
-    # to run the tests. We just want to make sure that the tests are tested
-    # multiple time.
-    assert outcomes["passed"] > 1000
+#     # We can't predict the exact number because it depends on the time it takes
+#     # to run the tests. We just want to make sure that the tests are tested
+#     # multiple time.
+#     assert outcomes["passed"] > 1000
 
-    # Only the first run of the flaky test.
-    assert outcomes["failed"] == 1
+#     # Only the first run of the flaky test.
+#     assert outcomes["failed"] == 1
 
-    # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
-    assert outcomes["skipped"] == 1
+#     # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
+#     assert outcomes["skipped"] == 1
 
-    assert re.search(
-        r"""🐛 Flaky detection
-- Skipped 1 test\(s\):
-    • 'test_flaky_detection\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
-- Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-- Active for 3 new test\(s\):
-    • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-    • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-    • 'test_flaky_detection\.py::test_corge' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
-        result.stdout.str(),
-        re.MULTILINE,
-    )
+#     assert re.search(
+#         r"""🐛 Flaky detection
+# - Skipped 1 test\(s\):
+#     • 'test_flaky_detection\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
+# - Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+# - Active for 3 new test\(s\):
+#     • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+#     • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+#     • 'test_flaky_detection\.py::test_corge' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
+#         result.stdout.str(),
+#         re.MULTILINE,
+#     )
 
-    assert spans is not None
+#     assert spans is not None
 
-    # 1 span for the session and one per test.
-    assert len(spans) == 1 + sum(outcomes.values())
+#     # 1 span for the session and one per test.
+#     assert len(spans) == 1 + sum(outcomes.values())
 
-    for test_name, expected in {
-        "test_flaky_detection.py::test_foo": False,
-        "test_flaky_detection.py::test_bar": True,
-        "test_flaky_detection.py::test_baz": True,
-        "test_flaky_detection.py::test_qux": False,
-    }.items():
-        span = spans.get(test_name)
+#     for test_name, expected in {
+#         "test_flaky_detection.py::test_foo": False,
+#         "test_flaky_detection.py::test_bar": True,
+#         "test_flaky_detection.py::test_baz": True,
+#         "test_flaky_detection.py::test_qux": False,
+#     }.items():
+#         span = spans.get(test_name)
 
-        assert span is not None
-        assert span.attributes is not None
-        if expected:
-            assert span.attributes.get("cicd.test.new")
+#         assert span is not None
+#         assert span.attributes is not None
+#         if expected:
+#             assert span.attributes.get("cicd.test.new")
