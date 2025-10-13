@@ -422,10 +422,15 @@ def _select_affordable_tests(
     This ensures we don't select tests that would exceed our time constraints
     even with the minimum number of retries.
     """
+    if len(test_durations) == 0:
+        return {}
+
+    budget_per_test = budget_duration / len(test_durations)
 
     result = {}
     for test, duration in test_durations.items():
-        if duration * _MIN_TEST_RETRY_COUNT <= budget_duration / len(test_durations):
+        expected_retries_duration = duration * _MIN_TEST_RETRY_COUNT
+        if expected_retries_duration <= budget_per_test:
             result[test] = duration
 
     return result
@@ -436,7 +441,20 @@ def _allocate_test_retries(
     test_durations: typing.Dict[str, datetime.timedelta],
 ) -> typing.Dict[str, int]:
     """
-    Distributes test retries based on their duration and a time budget.
+    Distribute retries within a fixed time budget.
+
+    Why this shape:
+
+    1. First, drop tests that aren't affordable (cannot reach
+    `_MIN_TEST_RETRY_COUNT` within the budget). This avoids wasting time on
+    tests that would starve the rest.
+
+    2. Then allocate from fastest to slowest to free budget early: fast tests
+    often hit `_MAX_TEST_RETRY_COUNT`; when capped, leftover time rolls over to
+    slower tests.
+
+    3. At each step we recompute a fair per-test slice from the remaining budget
+    and remaining tests, so the distribution adapts as we go.
     """
 
     allocation: typing.Dict[str, int] = {}
