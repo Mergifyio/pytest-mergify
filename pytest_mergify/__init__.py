@@ -55,7 +55,20 @@ class PytestMergify:
             )
             return
 
-        self.mergify_ci.report_flaky_detection(terminalreporter)
+        if self.mergify_ci.flaky_detector:
+            terminalreporter.write_line(self.mergify_ci.flaky_detector.make_report())
+        elif self.mergify_ci.flaky_detector_error_message:
+            terminalreporter.write_line(
+                f"""⚠️  Flaky detection couldn't be enabled because of an error.
+
+Common issues:
+  • Your 'MERGIFY_TOKEN' might not be set or could be invalid
+  • There might be a network connectivity issue with the Mergify API
+
+📚 Documentation: https://docs.mergify.com/ci-insights/test-frameworks/pytest/
+🔍 Details: {self.mergify_ci.flaky_detector_error_message}""",
+                yellow=True,
+            )
 
         # CI Insights Quarantine warning logs
         if not self.mergify_ci.branch_name:
@@ -188,8 +201,13 @@ class PytestMergify:
             # this test's teardown still sees a next test. Otherwise pytest
             # considers the session finished, tears down session-scoped
             # fixtures, and our end-of-queue retries won't run.
-            if should_get_flaky_detection_items:
-                queue.extend(self.mergify_ci.get_pending_flaky_detection_items(session))
+            if (
+                self.mergify_ci.flaky_detector is not None
+                and should_get_flaky_detection_items
+            ):
+                queue.extend(
+                    self.mergify_ci.flaky_detector.get_remaining_items(session)
+                )
 
             # Execute the original flow (see:
             # https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py#L367-L372).
@@ -204,9 +222,16 @@ class PytestMergify:
             # that unlocks more retry budget, append any extra retries now. We
             # can call multiple times `get_pending_flaky_detection_items` keeps
             # track of what’s already queued.
-            if should_get_flaky_detection_items:
-                queue.extend(self.mergify_ci.get_pending_flaky_detection_items(session))
-                flaky_detection_deadline = self.mergify_ci.get_budget_deadline()
+            if (
+                self.mergify_ci.flaky_detector is not None
+                and should_get_flaky_detection_items
+            ):
+                queue.extend(
+                    self.mergify_ci.flaky_detector.get_remaining_items(session)
+                )
+                flaky_detection_deadline = (
+                    self.mergify_ci.flaky_detector.get_budget_deadline()
+                )
 
             i += 1
 
@@ -311,7 +336,12 @@ class PytestMergify:
             }
         )
 
-        self.mergify_ci.handle_flaky_detection_for_report(report)
+        if self.mergify_ci.flaky_detector:
+            detected = self.mergify_ci.flaky_detector.detect_from_report(report)
+            if detected:
+                opentelemetry.trace.get_current_span().set_attributes(
+                    {"cicd.test.new": True}
+                )
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
