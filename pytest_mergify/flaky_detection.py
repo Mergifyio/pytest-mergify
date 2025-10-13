@@ -11,6 +11,8 @@ import requests
 
 from pytest_mergify import utils
 
+FLAKY_DETECTION_MARKER = "tested_by_flaky_detector"
+
 # NOTE(remyduthu): We are using a hard-coded budget for now, but the idea is to
 # make it configurable in the future.
 _DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
@@ -115,6 +117,8 @@ class FlakyDetector:
 
         result = []
         for item in items_to_retry:
+            item.keywords[FLAKY_DETECTION_MARKER] = True
+
             expected_retries = int(allocation[item.nodeid])
             existing_retries = int(
                 self._new_test_retries.get(item.nodeid, 0),

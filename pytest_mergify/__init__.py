@@ -18,12 +18,15 @@ import pytest
 from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-from pytest_mergify import utils
+from pytest_mergify import flaky_detection, utils
 from pytest_mergify.ci_insights import MergifyCIInsights
 
 
 class PytestMergify:
     mergify_ci: MergifyCIInsights
+
+    _flaky_detection_deadline: typing.Optional[datetime.datetime] = None
+    _last_item: typing.Optional[_pytest.nodes.Item] = None
 
     def pytest_configure(self, config: _pytest.config.Config) -> None:
         kwargs = {}
@@ -137,6 +140,14 @@ Common issues:
             )
         self.has_error = False
 
+        self._last_item = None
+
+    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
+        # Record the last originally collected item so we can safely enqueue
+        # flaky-detection retries right before and after it runs.
+        if len(session.items) > 0:
+            self._last_item = session.items[-1]
+
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
         self,
@@ -154,88 +165,6 @@ Common issues:
             else opentelemetry.trace.StatusCode.OK
         )
         self.session_span.end()
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_runtestloop(self, session: _pytest.main.Session) -> bool:
-        """
-        Mirror pytest's default `pytest_runtestloop` but append our flaky
-        detection reruns to the tail of the queue. This preserves pytest's
-        behavior while scheduling additional retries at the very end.
-        """
-
-        # Execute the original checks (see:
-        # https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py#L358-L364).
-        if (
-            session.testsfailed
-            and not session.config.option.continue_on_collection_errors
-        ):
-            raise session.Interrupted(
-                f"{session.testsfailed} error{'s' if session.testsfailed != 1 else ''} during collection"
-            )
-
-        if session.config.option.collectonly:
-            return True
-
-        queue = list(session.items)
-        flaky_detection_deadline: typing.Optional[datetime.datetime] = None
-
-        i = 0
-        while i < len(queue):
-            item = queue[i]
-
-            should_get_flaky_detection_items = (
-                i + 1 >= len(queue) and flaky_detection_deadline is None
-            )
-
-            if (
-                flaky_detection_deadline is not None
-                and datetime.datetime.now(datetime.timezone.utc)
-                > flaky_detection_deadline
-            ):
-                # Hard deadline to protect the budget allocated to flaky
-                # detection. If tests take longer than expected, we stop
-                # immediately.
-                break
-
-            # Before we run the last original test, append the retry items so
-            # this test's teardown still sees a next test. Otherwise pytest
-            # considers the session finished, tears down session-scoped
-            # fixtures, and our end-of-queue retries won't run.
-            if (
-                self.mergify_ci.flaky_detector is not None
-                and should_get_flaky_detection_items
-            ):
-                queue.extend(
-                    self.mergify_ci.flaky_detector.get_remaining_items(session)
-                )
-
-            # Execute the original flow (see:
-            # https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py#L367-L372).
-            nextitem = queue[i + 1] if i + 1 < len(queue) else None
-            item.ihook.pytest_runtest_protocol(item=item, nextitem=nextitem)
-            if session.shouldfail:
-                raise session.Failed(session.shouldfail)
-            if session.shouldstop:
-                raise session.Interrupted(session.shouldstop)
-
-            # After we run the last original test, we know how long it took. If
-            # that unlocks more retry budget, append any extra retries now. We
-            # can call multiple times `get_pending_flaky_detection_items` keeps
-            # track of what’s already queued.
-            if (
-                self.mergify_ci.flaky_detector is not None
-                and should_get_flaky_detection_items
-            ):
-                queue.extend(
-                    self.mergify_ci.flaky_detector.get_remaining_items(session)
-                )
-                flaky_detection_deadline = (
-                    self.mergify_ci.flaky_detector.get_budget_deadline()
-                )
-
-            i += 1
-
-        return True
 
     def _attributes_from_item(
         self, item: _pytest.nodes.Item
@@ -281,6 +210,58 @@ Common issues:
             context=context,
         ):
             yield
+
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_teardown(
+        self,
+        item: _pytest.nodes.Item,
+        nextitem: typing.Optional[_pytest.nodes.Item],
+    ) -> typing.Generator[None, None, None]:
+        if not self.mergify_ci.flaky_detector:
+            yield
+            return
+
+        is_flaky_detection_item = item.keywords.get(
+            flaky_detection.FLAKY_DETECTION_MARKER,
+        )
+        if is_flaky_detection_item:
+            # Protect the budget allocated to flaky detection. If tests take
+            # longer than expected, we clear the remaining items.
+            is_deadline_exceeded = (
+                self._flaky_detection_deadline
+                and datetime.datetime.now(datetime.timezone.utc)
+                > self._flaky_detection_deadline
+            )
+            if is_deadline_exceeded:
+                item.session.items.clear()
+
+            yield
+            return
+
+        # Before we run the last item, append the items generated by the flaky
+        # detector so this test's teardown still sees a next test. Otherwise
+        # pytest considers the session finished, tears down session-scoped
+        # fixtures, and our end-of-queue retries won't run.
+        if nextitem and self._last_item and nextitem.nodeid == self._last_item.nodeid:
+            item.session.items.extend(
+                self.mergify_ci.flaky_detector.get_remaining_items(
+                    item.session,
+                )
+            )
+            self._flaky_detection_deadline = (
+                self.mergify_ci.flaky_detector.get_budget_deadline()
+            )
+
+        yield
+
+        # After we run the last item, we know how long it took. If that unlocks
+        # more budget for the flaky detection, use it now.
+        if not nextitem:
+            item.session.items.extend(
+                self.mergify_ci.flaky_detector.get_remaining_items(
+                    item.session,
+                )
+            )
 
     def pytest_exception_interact(
         self,
