@@ -1,3 +1,4 @@
+import dataclasses
 import os
 import re
 import subprocess
@@ -155,3 +156,15 @@ def is_env_truthy(key: str) -> bool:
         "on",
         "1",
     }
+
+
+@dataclasses.dataclass
+class APIContext:
+    token: str
+    url: str
+
+    full_repository_name: str
+    branch_name: str
+
+    def authorization_header(self) -> typing.Dict[str, str]:
+        return {"Authorization": f"Bearer {self.token}"}

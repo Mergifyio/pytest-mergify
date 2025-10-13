@@ -1,17 +1,17 @@
 import dataclasses
 import os
-import pytest
-import _pytest.nodes
-import requests
 import typing
+
+import _pytest.nodes
+import pytest
+import requests
+
+from pytest_mergify import utils
 
 
 @dataclasses.dataclass
 class Quarantine:
-    api_url: str
-    token: str
-    repo_name: str
-    branch_name: str
+    api_ctxt: utils.APIContext
     quarantined_tests: typing.List[str] = dataclasses.field(
         init=False, default_factory=list
     )
@@ -22,18 +22,18 @@ class Quarantine:
 
     def __post_init__(self) -> None:
         try:
-            owner, repository = self.repo_name.split("/")
+            owner, repository = self.api_ctxt.full_repository_name.split("/")
         except ValueError:
-            self.init_error_msg = f"Repository name '{self.repo_name}' has an unexpected format (expected 'owner/repository'), skipping CI Insights Quarantine setup"
+            self.init_error_msg = f"Repository name '{self.api_ctxt.full_repository_name}' has an unexpected format (expected 'owner/repository'), skipping CI Insights Quarantine setup"
             return
 
-        url = f"{self.api_url}/v1/ci/{owner}/repositories/{repository}/quarantines"
+        url = f"{self.api_ctxt.url}/v1/ci/{owner}/repositories/{repository}/quarantines"
 
         try:
             quarantine_resp: requests.Response = requests.get(
                 url,
-                headers={"Authorization": f"Bearer {self.token}"},
-                params={"branch": self.branch_name},
+                headers=self.api_ctxt.authorization_header(),
+                params={"branch": self.api_ctxt.branch_name},
                 timeout=10,
             )
         except requests.RequestException as exc:
@@ -59,8 +59,8 @@ class Quarantine:
 
     def quarantined_tests_report(self) -> str:
         report_str = f"""🛡️ Quarantine
-- Repository: {self.repo_name}
-- Branch: {self.branch_name}
+- Repository: {self.api_ctxt.full_repository_name}
+- Branch: {self.api_ctxt.branch_name}
 - Quarantined tests fetched from API: {len(self.quarantined_tests)}
 """
 

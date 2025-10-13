@@ -187,10 +187,12 @@ class MergifyCIInsights:
 
         if self.token and self.repo_name and self.branch_name:
             self.quarantined_tests = pytest_mergify.quarantine.Quarantine(
-                self.api_url,
-                self.token,
-                self.repo_name,
-                self.branch_name,
+                api_ctxt=utils.APIContext(
+                    token=self.token,
+                    url=self.api_url,
+                    full_repository_name=self.repo_name,
+                    branch_name=self.branch_name,
+                ),
             )
 
     def _add_new_test_duration(

@@ -1,7 +1,8 @@
 import pytest
-import responses
 import requests
+import responses
 
+from pytest_mergify import utils
 from pytest_mergify.quarantine import Quarantine
 
 
@@ -17,10 +18,12 @@ def test_quarantine_handles_requests_exception(monkeypatch: pytest.MonkeyPatch) 
     )
 
     q = Quarantine(
-        api_url="https://example.com",
-        token="tok",
-        repo_name="owner/repo",
-        branch_name="main",
+        api_ctxt=utils.APIContext(
+            token="tok",
+            url="https://example.com",
+            full_repository_name="owner/repo",
+            branch_name="main",
+        )
     )
 
     assert q.init_error_msg is not None
