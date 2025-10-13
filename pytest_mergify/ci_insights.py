@@ -1,5 +1,4 @@
 import dataclasses
-import datetime
 import os
 import random
 import typing
@@ -23,7 +22,7 @@ import pytest_mergify.resources.github_actions as resources_gha
 import pytest_mergify.resources.jenkins as resources_jenkins
 import pytest_mergify.resources.mergify as resources_mergify
 import pytest_mergify.resources.pytest as resources_pytest
-from pytest_mergify import utils
+from pytest_mergify import flaky_detection, utils
 
 
 class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
@@ -50,15 +49,6 @@ class SessionHardRaiser(requests.Session):  # type: ignore[misc]
         response = super().request(*args, **kwargs)
         response.raise_for_status()
         return response
-
-
-# NOTE(remyduthu): We are using a hard-coded budget for now, but the idea is to
-# make it configurable in the future.
-_DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
-_MAX_TEST_NAME_LENGTH = 65536
-_MIN_TEST_RETRY_COUNT = 5
-_MAX_TEST_RETRY_COUNT = 1000
-_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=1)
 
 
 @dataclasses.dataclass
@@ -91,27 +81,16 @@ class MergifyCIInsights:
         init=False,
         default_factory=lambda: random.getrandbits(64).to_bytes(8, "big").hex(),
     )
-    _existing_test_names: typing.List[str] = dataclasses.field(
-        init=False,
-        default_factory=list,
-    )
-    _flaky_detection_error_message: typing.Optional[str] = dataclasses.field(
+
+    flaky_detector: typing.Optional[flaky_detection.FlakyDetector] = dataclasses.field(
         init=False,
         default=None,
     )
-    _total_test_durations: datetime.timedelta = dataclasses.field(
-        init=False, default=datetime.timedelta()
-    )
-    _new_test_durations_by_name: typing.Dict[str, datetime.timedelta] = (
-        dataclasses.field(init=False, default_factory=dict)
-    )
-    _new_test_retry_count_by_name: typing.DefaultDict[str, int] = dataclasses.field(
-        init=False, default_factory=lambda: typing.DefaultDict(int)
-    )
-    _over_length_test_names: typing.Set[str] = dataclasses.field(
+    flaky_detector_error_message: typing.Optional[str] = dataclasses.field(
         init=False,
-        default_factory=set,
+        default=None,
     )
+
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
         dataclasses.field(
             init=False,
@@ -183,7 +162,7 @@ class MergifyCIInsights:
             # `str` cast just for `mypy`
             self.branch_name = str(branch_name)
 
-        self._load_flaky_detection()
+        self._load_flaky_detector()
 
         if self.token and self.repo_name and self.branch_name:
             self.quarantined_tests = pytest_mergify.quarantine.Quarantine(
@@ -193,213 +172,27 @@ class MergifyCIInsights:
                 self.branch_name,
             )
 
-    def _add_new_test_duration(
-        self,
-        test_name: str,
-        test_duration: datetime.timedelta,
-    ) -> None:
-        if test_name in self._new_test_durations_by_name:
-            return
-
-        if len(test_name) > _MAX_TEST_NAME_LENGTH:
-            self._over_length_test_names.add(test_name)
-            return
-
-        self._new_test_durations_by_name[test_name] = test_duration
-
-    def _is_flaky_detection_enabled(self) -> bool:
-        return (
-            self.token is not None
-            and self.repo_name is not None
+    def _load_flaky_detector(self) -> None:
+        if (
+            self.token is None
+            or self.repo_name is None
+            or self.branch_name is None
             # NOTE(remyduthu): Hide behind a feature flag for now.
-            and utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
-        )
-
-    def _is_flaky_detection_active(self) -> bool:
-        return (
-            self._is_flaky_detection_enabled()
-            # Flaky detection should be disabled if we don't have any data for the base branch.
-            and len(self._existing_test_names) > 0
-            and self._flaky_detection_error_message is None
-        )
-
-    def _load_flaky_detection(self) -> None:
-        if not self._is_flaky_detection_enabled():
+            or not utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
+        ):
             return
 
         try:
-            self._existing_test_names = self._fetch_existing_test_names()
+            self.flaky_detector = flaky_detection.FlakyDetector(
+                token=self.token,
+                url=self.api_url,
+                full_repository_name=self.repo_name,
+                branch_name=self.branch_name,
+            )
         except Exception as exception:
-            self._flaky_detection_error_message = (
-                f"Could not fetch existing test names: {str(exception)}"
+            self.flaky_detector_error_message = (
+                f"Could not load flaky detector: {str(exception)}"
             )
-
-    def _fetch_existing_test_names(self) -> typing.List[str]:
-        if not self.token or not self.repo_name or not self.branch_name:
-            raise ValueError("'token', 'repo_name' and 'branch_name' are required")
-
-        owner, repository = utils.split_full_repo_name(self.repo_name)
-
-        response = requests.get(
-            url=f"{self.api_url}/v1/ci/{owner}/tests/names",
-            headers={"Authorization": f"Bearer {self.token}"},
-            params={"repository": repository, "branch": self.branch_name},
-            timeout=10,
-        )
-
-        response.raise_for_status()
-
-        return typing.cast(typing.List[str], response.json()["test_names"])
-
-    def report_flaky_detection(
-        self,
-        terminalreporter: _pytest.terminal.TerminalReporter,
-    ) -> None:
-        if not self._is_flaky_detection_enabled():
-            return
-
-        if self._flaky_detection_error_message:
-            terminalreporter.write_line(
-                f"""⚠️  Flaky detection couldn't be enabled because of an error.
-
-Common issues:
-  • Your 'MERGIFY_TOKEN' might not be set or could be invalid
-  • There might be a network connectivity issue with the Mergify API
-
-📚 Documentation: https://docs.mergify.com/ci-insights/test-frameworks/pytest/
-🔍 Details: {self._flaky_detection_error_message}""",
-                yellow=True,
-            )
-
-            return
-
-        terminalreporter.write_line(self._get_flaky_detection_report_message())
-
-    def _get_flaky_detection_report_message(self) -> str:
-        result = "🐛 Flaky detection"
-        if self._over_length_test_names:
-            result += (
-                f"{os.linesep}- Skipped {len(self._over_length_test_names)} test(s):"
-            )
-            for name in self._over_length_test_names:
-                result += (
-                    f"{os.linesep}    • '{name}' has not been tested multiple "
-                    f"times because the name of the test exceeds our limit of "
-                    f"{_MAX_TEST_NAME_LENGTH} characters"
-                )
-
-        if not self._new_test_durations_by_name:
-            result += f"{os.linesep}- No new tests detected, but we are watching 👀"
-
-            return result
-
-        total_retry_duration_seconds = sum(
-            self._new_test_durations_by_name[test_name].total_seconds() * retry_count
-            for test_name, retry_count in self._new_test_retry_count_by_name.items()
-            if retry_count > 0
-        )
-        budget_duration_seconds = self._get_budget_duration().total_seconds()
-        result += (
-            f"{os.linesep}- Used {total_retry_duration_seconds / budget_duration_seconds * 100:.2f} % "
-            f"of the budget ({total_retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
-        )
-
-        result += f"{os.linesep}- Active for {len(self._new_test_durations_by_name)} new test(s):"
-        for test, duration in self._new_test_durations_by_name.items():
-            retry_count = self._new_test_retry_count_by_name.get(test, 0)
-            if retry_count == 0:
-                result += f"{os.linesep}    • '{test}' is too slow to be tested at least {_MIN_TEST_RETRY_COUNT} times within the budget"
-                continue
-            elif retry_count < _MIN_TEST_RETRY_COUNT:
-                result += f"{os.linesep}    • '{test}' has been tested only {retry_count} times to avoid exceeding the budget"
-                continue
-
-            retry_duration_seconds = duration.total_seconds() * retry_count
-
-            result += (
-                f"{os.linesep}    • '{test}' has been tested {retry_count} "
-                f"times using approx. {retry_duration_seconds / budget_duration_seconds * 100:.2f} % "
-                f"of the budget ({retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
-            )
-
-        return result
-
-    def handle_flaky_detection_for_report(
-        self,
-        report: _pytest.reports.TestReport,
-    ) -> None:
-        if not self._is_flaky_detection_active():
-            return
-
-        if report.outcome not in ["failed", "passed"]:
-            return
-
-        test_duration = datetime.timedelta(seconds=report.duration)
-        self._total_test_durations += test_duration
-
-        test_name = report.nodeid
-        if test_name in self._existing_test_names:
-            return
-
-        self._add_new_test_duration(test_name, test_duration)
-
-        if self.tracer:
-            opentelemetry.trace.get_current_span().set_attributes(
-                {"cicd.test.new": True}
-            )
-
-    def get_pending_flaky_detection_items(
-        self,
-        session: _pytest.main.Session,
-    ) -> typing.List[_pytest.nodes.Item]:
-        """
-        Return the remaining retry items for this session based on the current
-        state of the flaky detection. It can be called multiple times as we
-        track already scheduled retries so we only return what's still needed.
-        """
-        if not self._is_flaky_detection_active():
-            return []
-
-        allocation = _allocate_test_retries(
-            self._get_budget_duration(),
-            self._new_test_durations_by_name,
-        )
-
-        items_to_retry = [item for item in session.items if item.nodeid in allocation]
-
-        result = []
-        for item in items_to_retry:
-            expected_retries = int(allocation[item.nodeid])
-            existing_retries = int(
-                self._new_test_retry_count_by_name.get(item.nodeid, 0),
-            )
-
-            remaining_retries = max(0, expected_retries - existing_retries)
-            for _ in range(remaining_retries):
-                self._new_test_retry_count_by_name[item.nodeid] += 1
-                result.append(item)
-
-        return result
-
-    def get_budget_deadline(self) -> datetime.datetime:
-        return (
-            datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
-        )
-
-    def _get_budget_duration(self) -> datetime.timedelta:
-        """
-        Calculate the budget duration based on a percentage of total test
-        execution time.
-
-        The budget ensures there's always a minimum time allocated of
-        '_MIN_TEST_RETRY_BUDGET_DURATION' even for very short test suites,
-        preventing overly restrictive retry policies when the total test
-        duration is small.
-        """
-        return max(
-            _DEFAULT_TEST_RETRY_BUDGET_RATIO * self._total_test_durations,
-            _MIN_TEST_RETRY_BUDGET_DURATION,
-        )
 
     def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
         """
@@ -410,79 +203,3 @@ Common issues:
             return True
 
         return False
-
-
-def _select_affordable_tests(
-    budget_duration: datetime.timedelta,
-    test_durations: typing.Dict[str, datetime.timedelta],
-) -> typing.Dict[str, datetime.timedelta]:
-    """
-    Select tests that can be retried within the given budget.
-
-    This ensures we don't select tests that would exceed our time constraints
-    even with the minimum number of retries.
-    """
-    if len(test_durations) == 0:
-        return {}
-
-    budget_per_test = budget_duration / len(test_durations)
-
-    result = {}
-    for test, duration in test_durations.items():
-        expected_retries_duration = duration * _MIN_TEST_RETRY_COUNT
-        if expected_retries_duration <= budget_per_test:
-            result[test] = duration
-
-    return result
-
-
-def _allocate_test_retries(
-    budget_duration: datetime.timedelta,
-    test_durations: typing.Dict[str, datetime.timedelta],
-) -> typing.Dict[str, int]:
-    """
-    Distribute retries within a fixed time budget.
-
-    Why this shape:
-
-    1. First, drop tests that aren't affordable (cannot reach
-    `_MIN_TEST_RETRY_COUNT` within the budget). This avoids wasting time on
-    tests that would starve the rest.
-
-    2. Then allocate from fastest to slowest to free budget early: fast tests
-    often hit `_MAX_TEST_RETRY_COUNT`; when capped, leftover time rolls over to
-    slower tests.
-
-    3. At each step we recompute a fair per-test slice from the remaining budget
-    and remaining tests, so the distribution adapts as we go.
-    """
-
-    allocation: typing.Dict[str, int] = {}
-
-    affordable_test_durations = _select_affordable_tests(
-        budget_duration,
-        test_durations,
-    )
-
-    for test, duration in sorted(
-        affordable_test_durations.items(),
-        key=lambda item: item[1],
-    ):
-        remaining_budget = budget_duration - sum(
-            (allocation[t] * affordable_test_durations[t] for t in allocation),
-            start=datetime.timedelta(),
-        )
-        remaining_test_count = len(affordable_test_durations) - len(allocation)
-
-        budget_per_test = remaining_budget / remaining_test_count
-
-        # Guard against zero or negative duration to prevent division by zero.
-        # If a test reports a zero duration, it means it's effectively free to
-        # retry, so we assign the maximum allowed retries within our global cap.
-        if duration <= datetime.timedelta():
-            allocation[test] = _MAX_TEST_RETRY_COUNT
-            continue
-
-        allocation[test] = min(budget_per_test // duration, _MAX_TEST_RETRY_COUNT)
-
-    return allocation
