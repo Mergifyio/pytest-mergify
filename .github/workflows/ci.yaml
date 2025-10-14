@@ -23,6 +23,7 @@ jobs:
             ${{ matrix.python-version }}
       - env:
           _MERGIFY_TEST_NEW_FLAKY_DETECTION: "true"
+          MERGIFY_TEST_FLAKY_DETECTION: "true"
         run: |
           # nosemgrep: generic.ci.security.use-frozen-lockfile.use-frozen-lockfile-pip
           python3.13 -m pip install -r requirements-poetry.txt
