@@ -17,7 +17,7 @@ _DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
 _MAX_TEST_NAME_LENGTH = 65536
 _MIN_TEST_RETRY_COUNT = 5
 _MAX_TEST_RETRY_COUNT = 1000
-_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=1)
+_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=4)
 
 
 @dataclasses.dataclass
@@ -134,8 +134,26 @@ class FlakyDetector:
 
             remaining_retries = max(0, expected_retries - existing_retries)
             for _ in range(remaining_retries):
+                # The parent is a class or a module in our case. It should
+                # always be defined, but we handle it gracefully just in case.
+                if not item.parent:
+                    continue
+
                 self._new_test_retries[item.nodeid] += 1
-                result.append(item)
+
+                clone = item.__class__.from_parent(
+                    name=item.name,
+                    parent=item.parent,
+                )
+                result.append(clone)
+
+        # Manually trigger pytest hooks for the new items. This ensures plugins
+        # like `pytest-asyncio` process them.
+        session.config.hook.pytest_collection_modifyitems(
+            session=session,
+            config=session.config,
+            items=result,
+        )
 
         return result
 
@@ -170,6 +188,17 @@ class FlakyDetector:
         )
         if not (is_just_before_last_item or is_last_item):
             return
+
+        # We are handling a very special edge case where there is only one new
+        # test and it's the last one. In that particular case, we'll rely only
+        # on the deadline and assign the maximum amount of retries to this test.
+        if (
+            is_just_before_last_item
+            and len(self._new_test_durations) == 0
+            and nextitem
+            and nextitem.nodeid not in self._existing_tests
+        ):
+            self._new_test_durations[nextitem.nodeid] = datetime.timedelta()
 
         item.session.items.extend(self._get_remaining_items(item.session))
 
