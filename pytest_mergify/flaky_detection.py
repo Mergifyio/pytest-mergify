@@ -65,7 +65,13 @@ class FlakyDetector:
 
         response.raise_for_status()
 
-        return typing.cast(typing.List[str], response.json()["test_names"])
+        result = typing.cast(typing.List[str], response.json()["test_names"])
+        if len(result) == 0:
+            raise RuntimeError(
+                f"No existing tests found for '{self.full_repository_name}' repository on branch '{self.branch_name}'",
+            )
+
+        return result
 
     def detect_from_report(self, report: _pytest.reports.TestReport) -> bool:
         if report.when != "call":

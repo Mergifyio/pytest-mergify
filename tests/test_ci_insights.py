@@ -73,6 +73,24 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @responses.activate
+def test_load_flaky_detection_error_without_existing_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_test_environment(monkeypatch)
+
+    _make_quarantine_mock()
+    _make_test_names_mock([])
+
+    client = _make_test_client()
+    assert client.flaky_detector is None
+    assert client.flaky_detector_error_message is not None
+    assert (
+        "No existing tests found for 'Mergifyio/pytest-mergify' repository on branch 'main'"
+        in client.flaky_detector_error_message
+    )
+
+
+@responses.activate
 def test_flaky_detection(
     monkeypatch: pytest.MonkeyPatch,
     pytester_with_spans: conftest.PytesterWithSpanT,
