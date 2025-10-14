@@ -180,18 +180,17 @@ def test_flaky_detection(
     # 1 span for the session and one per test.
     assert len(spans) == 1 + sum(outcomes.values())
 
-    for test_name, expected in {
-        "test_flaky_detection.py::test_foo": False,
-        "test_flaky_detection.py::test_bar": True,
-        "test_flaky_detection.py::test_baz": True,
-        "test_flaky_detection.py::test_qux": False,
-    }.items():
-        span = spans.get(test_name)
-
+    new_tests = [
+        "test_flaky_detection.py::test_bar",
+        "test_flaky_detection.py::test_baz",
+        "test_flaky_detection.py::test_corge",
+    ]
+    for span in spans.values():
         assert span is not None
         assert span.attributes is not None
-        if expected:
-            assert span.attributes.get("cicd.test.new")
+
+        is_new_test = span.name in new_tests
+        assert span.attributes.get("cicd.test.new", False) == is_new_test
 
 
 @responses.activate

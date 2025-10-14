@@ -94,7 +94,7 @@ class FlakyDetector:
             return False
 
         if test in self._new_test_durations:
-            return False
+            return True
 
         if len(test) > _MAX_TEST_NAME_LENGTH:
             self._over_length_tests.add(test)
