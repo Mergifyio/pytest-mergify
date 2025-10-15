@@ -118,10 +118,20 @@ class FlakyDetector:
         already scheduled retries so we only return what's still needed.
         """
 
-        allocation = _allocate_test_retries(
-            self._get_budget_duration(),
-            self._new_test_durations,
-        )
+        # If we have exactly one new test and it's the last one, we can't know
+        # its duration yet, so allocate max retries directly and rely on the
+        # budget deadline instead of going through the budget allocation.
+        if (
+            len(self._new_test_durations) == 0
+            and self.last_collected_test
+            and self.last_collected_test not in self._existing_tests
+        ):
+            allocation = {self.last_collected_test: _MAX_TEST_RETRY_COUNT}
+        else:
+            allocation = _allocate_test_retries(
+                self._get_budget_duration(),
+                self._new_test_durations,
+            )
 
         items_to_retry = [item for item in session.items if item.nodeid in allocation]
 
