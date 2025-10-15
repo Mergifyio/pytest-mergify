@@ -17,7 +17,7 @@ _DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
 _MAX_TEST_NAME_LENGTH = 65536
 _MIN_TEST_RETRY_COUNT = 5
 _MAX_TEST_RETRY_COUNT = 1000
-_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=1)
+_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=4)
 
 
 @dataclasses.dataclass
