@@ -144,8 +144,26 @@ class FlakyDetector:
 
             remaining_retries = max(0, expected_retries - existing_retries)
             for _ in range(remaining_retries):
+                # The parent is a class or a module in our case. It should
+                # always be defined, but we handle it gracefully just in case.
+                if not item.parent:
+                    continue
+
                 self._new_test_retries[item.nodeid] += 1
-                result.append(item)
+
+                clone = item.__class__.from_parent(
+                    name=item.name,
+                    parent=item.parent,
+                )
+                result.append(clone)
+
+        # Manually trigger pytest hooks for the new items. This ensures plugins
+        # like `pytest-asyncio` process them.
+        session.config.hook.pytest_collection_modifyitems(
+            session=session,
+            config=session.config,
+            items=result,
+        )
 
         return result
 

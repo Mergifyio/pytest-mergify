@@ -3,6 +3,7 @@ import typing
 
 import pytest
 import responses
+from opentelemetry.sdk import trace
 
 from pytest_mergify import ci_insights, flaky_detection
 
@@ -227,19 +228,48 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
     result.assert_outcomes(passed=1002)
 
     assert spans is not None
-    assert len(spans) == 1002 + 1  # 1 additional span for the session.
 
-    span_name_prefix = "test_flaky_detection_with_only_one_new_test_at_the_end.py"
+    # Only 1 execution for the existing test (`test_foo`), 1001 executions for
+    # the new test (`test_bar`) and 1 additional span for the session.
+    assert _get_span_counts(spans) == {
+        "pytest session start": 1,
+        "test_flaky_detection_with_only_one_new_test_at_the_end.py::test_foo": 1,
+        "test_flaky_detection_with_only_one_new_test_at_the_end.py::test_bar": 1001,
+    }
 
-    # Only 1 execution for the existing test (`test_foo`), and 1001 executions
-    # for the new test (`test_bar`).
-    test_foo_execution_count = 0
-    test_bar_execution_count = 0
-    for _, span in spans.items():
-        if span.name == f"{span_name_prefix}::test_bar":
-            test_bar_execution_count += 1
-        elif span.name == f"{span_name_prefix}::test_foo":
-            test_foo_execution_count += 1
 
-    assert test_foo_execution_count == 1
-    assert test_bar_execution_count == 1001
+@responses.activate
+def test_flaky_detection_clones_items(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_test_names_mock(["test_flaky_detection_clones_items.py::test_foo"])
+
+    result, spans = pytester_with_spans(
+        code="""
+        import pytest
+
+        @pytest.mark.asyncio
+        async def test_bar():
+            assert True
+        """
+    )
+    result.assert_outcomes(passed=1001)
+
+    assert spans is not None
+    assert _get_span_counts(spans) == {
+        "pytest session start": 1,
+        "test_flaky_detection_clones_items.py::test_bar": 1001,
+    }
+
+
+def _get_span_counts(
+    spans: typing.Dict[str, trace.ReadableSpan],
+) -> typing.Dict[str, int]:
+    result: typing.Dict[str, int] = {}
+    for span in spans.values():
+        result[span.name] = result.get(span.name, 0) + 1
+
+    return result
