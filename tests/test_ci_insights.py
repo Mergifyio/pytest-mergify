@@ -191,3 +191,37 @@ def test_flaky_detection(
         assert span.attributes is not None
         if expected:
             assert span.attributes.get("cicd.test.new")
+
+
+@responses.activate
+def test_flaky_detection_with_only_one_new_test_at_the_end(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_test_names_mock(
+        ["test_flaky_detection_with_only_one_new_test_at_the_end.py::test_foo"]
+    )
+
+    result, _ = pytester_with_spans(
+        code="""
+        import pytest
+
+        SESSION_ALREADY_SET = False
+
+        @pytest.fixture(scope="session", autouse=True)
+        def _setup_session() -> None:
+            global SESSION_ALREADY_SET
+            if SESSION_ALREADY_SET:
+                raise RuntimeError("This function should not be called twice")
+            SESSION_ALREADY_SET = True
+
+        def test_foo():
+            assert True
+
+        def test_corge():
+            assert True
+        """
+    )
+    result.assert_outcomes(passed=1002)
