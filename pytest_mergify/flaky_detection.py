@@ -1,3 +1,4 @@
+import collections
 import dataclasses
 import datetime
 import os
@@ -21,6 +22,34 @@ _MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=4)
 
 
 @dataclasses.dataclass
+class _NewTestMetrics:
+    "Represents metrics collected for a new test."
+
+    initial_duration: datetime.timedelta = dataclasses.field(
+        default_factory=datetime.timedelta
+    )
+    "Represents the duration of the initial execution of the test."
+
+    retry_count: int = dataclasses.field(default=0)
+    "Represents the number of times the test has been retried so far."
+
+    scheduled_retry_count: int = dataclasses.field(default=0)
+    "Represents the number of retries that have been scheduled for this test depending on the budget."
+
+    total_duration: datetime.timedelta = dataclasses.field(
+        default_factory=datetime.timedelta
+    )
+    "Represents the total duration spent executing this test, including retries."
+
+    def add_duration(self, duration: datetime.timedelta) -> None:
+        if not self.initial_duration:
+            self.initial_duration = duration
+
+        self.retry_count += 1
+        self.total_duration += duration
+
+
+@dataclasses.dataclass
 class FlakyDetector:
     token: str
     url: str
@@ -37,11 +66,8 @@ class FlakyDetector:
         init=False,
         default_factory=list,
     )
-    _new_test_durations: typing.Dict[str, datetime.timedelta] = dataclasses.field(
-        init=False, default_factory=dict
-    )
-    _new_test_retries: typing.DefaultDict[str, int] = dataclasses.field(
-        init=False, default_factory=lambda: typing.DefaultDict(int)
+    _new_test_metrics: typing.Dict[str, _NewTestMetrics] = dataclasses.field(
+        init=False, default_factory=lambda: collections.defaultdict(_NewTestMetrics)
     )
     _over_length_tests: typing.Set[str] = dataclasses.field(
         init=False, default_factory=set
@@ -93,14 +119,12 @@ class FlakyDetector:
         if test in self._existing_tests:
             return False
 
-        if test in self._new_test_durations:
-            return True
-
         if len(test) > _MAX_TEST_NAME_LENGTH:
             self._over_length_tests.add(test)
             return False
 
-        self._new_test_durations[test] = duration
+        self._new_test_metrics[test].add_duration(duration)
+
         return True
 
     def _get_budget_deadline(self) -> datetime.datetime:
@@ -122,7 +146,7 @@ class FlakyDetector:
         # its duration yet, so allocate max retries directly and rely on the
         # budget deadline instead of going through the budget allocation.
         if (
-            len(self._new_test_durations) == 0
+            len(self._new_test_metrics) == 0
             and self.last_collected_test
             and self.last_collected_test not in self._existing_tests
         ):
@@ -130,7 +154,10 @@ class FlakyDetector:
         else:
             allocation = _allocate_test_retries(
                 self._get_budget_duration(),
-                self._new_test_durations,
+                {
+                    test: metrics.initial_duration
+                    for test, metrics in self._new_test_metrics.items()
+                },
             )
 
         items_to_retry = [item for item in session.items if item.nodeid in allocation]
@@ -139,7 +166,7 @@ class FlakyDetector:
         for item in items_to_retry:
             expected_retries = int(allocation[item.nodeid])
             existing_retries = int(
-                self._new_test_retries.get(item.nodeid, 0),
+                self._new_test_metrics[item.nodeid].scheduled_retry_count,
             )
 
             remaining_retries = max(0, expected_retries - existing_retries)
@@ -149,7 +176,7 @@ class FlakyDetector:
                 if not item.parent:
                     continue
 
-                self._new_test_retries[item.nodeid] += 1
+                self._new_test_metrics[item.nodeid].scheduled_retry_count += 1
 
                 clone = item.__class__.from_parent(
                     name=item.name,
@@ -207,48 +234,57 @@ class FlakyDetector:
     def make_report(self) -> str:
         result = "🐛 Flaky detection"
         if self._over_length_tests:
-            result += f"{os.linesep}- Skipped {len(self._over_length_tests)} test(s):"
+            result += (
+                f"{os.linesep}- Skipped {len(self._over_length_tests)} "
+                f"test{'s' if len(self._over_length_tests) > 1 else ''}:"
+            )
             for test in self._over_length_tests:
                 result += (
-                    f"{os.linesep}    • '{test}' has not been tested multiple "
-                    f"times because the name of the test exceeds our limit of "
-                    f"{_MAX_TEST_NAME_LENGTH} characters"
+                    f"{os.linesep}    • '{test}' has not been tested multiple times because the name of the test "
+                    f"exceeds our limit of {_MAX_TEST_NAME_LENGTH} characters"
                 )
 
-        if not self._new_test_durations:
+        if not self._new_test_metrics:
             result += f"{os.linesep}- No new tests detected, but we are watching 👀"
 
             return result
 
         total_retry_duration_seconds = sum(
-            self._new_test_durations[test_name].total_seconds() * retry_count
-            for test_name, retry_count in self._new_test_retries.items()
-            if retry_count > 0
+            metrics.total_duration.total_seconds()
+            for metrics in self._new_test_metrics.values()
         )
         budget_duration_seconds = self._get_budget_duration().total_seconds()
         result += (
-            f"{os.linesep}- Used {total_retry_duration_seconds / budget_duration_seconds * 100:.2f} % "
-            f"of the budget ({total_retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+            f"{os.linesep}- Used {total_retry_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
+            f"({total_retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
         )
 
         result += (
-            f"{os.linesep}- Active for {len(self._new_test_durations)} new test(s):"
+            f"{os.linesep}- Active for {len(self._new_test_metrics)} new "
+            f"test{'s' if len(self._new_test_metrics) > 1 else ''}:"
         )
-        for test, duration in self._new_test_durations.items():
-            retry_count = self._new_test_retries.get(test, 0)
-            if retry_count == 0:
-                result += f"{os.linesep}    • '{test}' is too slow to be tested at least {_MIN_TEST_RETRY_COUNT} times within the budget"
-                continue
-            elif retry_count < _MIN_TEST_RETRY_COUNT:
-                result += f"{os.linesep}    • '{test}' has been tested only {retry_count} times to avoid exceeding the budget"
+        for test, metrics in self._new_test_metrics.items():
+            if metrics.scheduled_retry_count == 0:
+                result += (
+                    f"{os.linesep}    • '{test}' is too slow to be tested at least {_MIN_TEST_RETRY_COUNT} times "
+                    "within the budget"
+                )
                 continue
 
-            retry_duration_seconds = duration.total_seconds() * retry_count
+            if metrics.retry_count < metrics.scheduled_retry_count:
+                result += (
+                    f"{os.linesep}    • '{test}' has been tested only {metrics.retry_count} "
+                    f"time{'s' if metrics.retry_count > 1 else ''} instead of {metrics.scheduled_retry_count} "
+                    f"time{'s' if metrics.scheduled_retry_count > 1 else ''} to avoid exceeding the budget"
+                )
+                continue
 
+            retry_duration_seconds = metrics.total_duration.total_seconds()
             result += (
-                f"{os.linesep}    • '{test}' has been tested {retry_count} "
-                f"times using approx. {retry_duration_seconds / budget_duration_seconds * 100:.2f} % "
-                f"of the budget ({retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+                f"{os.linesep}    • '{test}' has been tested {metrics.retry_count} "
+                f"time{'s' if metrics.retry_count > 1 else ''} using approx. "
+                f"{retry_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
+                f"({retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
             )
 
         return result

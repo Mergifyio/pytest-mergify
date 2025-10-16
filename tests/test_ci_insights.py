@@ -1,10 +1,15 @@
+import datetime
 import re
 import typing
 
+import _pytest.nodes
+import _pytest.pytester
+import _pytest.reports
 import pytest
 import responses
 from opentelemetry.sdk import trace
 
+import pytest_mergify
 from pytest_mergify import ci_insights, flaky_detection
 
 from . import conftest
@@ -164,10 +169,10 @@ def test_flaky_detection(
 
     assert re.search(
         r"""🐛 Flaky detection
-- Skipped 1 test\(s\):
+- Skipped 1 test:
     • 'test_flaky_detection\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
 - Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-- Active for 3 new test\(s\):
+- Active for 3 new tests:
     • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
     • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
     • 'test_flaky_detection\.py::test_corge' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
@@ -262,6 +267,130 @@ def test_flaky_detection_clones_items(
         "pytest session start": 1,
         "test_flaky_detection_clones_items.py::test_bar": 1001,
     }
+
+
+@responses.activate
+def test_flaky_detection_slow_test_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    """
+    Test that a slow test is not retried when it can't reach
+    `flaky_detection._MIN_TEST_RETRY_COUNT` within the budget.
+    """
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_test_names_mock(
+        [
+            "test_flaky_detection_slow_test_not_retried.py::test_existing",
+        ]
+    )
+
+    class CustomPlugin:
+        def pytest_runtest_makereport(
+            self,
+            item: _pytest.nodes.Item,
+            call: _pytest.reports.TestReport,
+        ) -> None:
+            if call.when != "call":
+                return
+
+            if "test_slow" in item.nodeid:
+                call.duration = 10.0  # Simulate a slow test.
+            else:
+                call.duration = 0.001
+
+    pytester.makepyfile(
+        """
+        def test_existing():
+            assert True
+
+        def test_fast():
+            assert True
+
+        def test_slow():
+            assert True
+        """
+    )
+
+    result = pytester.runpytest_inprocess(
+        plugins=[CustomPlugin(), pytest_mergify.PytestMergify()]
+    )
+    result.assert_outcomes(passed=1003)
+
+    # `test_fast` should have been tested successfully.
+    assert re.search(
+        r"'test_flaky_detection_slow_test_not_retried\.py::test_fast' has been tested \d+ times",
+        result.stdout.str(),
+    )
+
+    assert (
+        f"'test_flaky_detection_slow_test_not_retried.py::test_slow' is too slow to be tested at least {flaky_detection._MIN_TEST_RETRY_COUNT} times within the budget"
+        in result.stdout.str()
+    )
+
+
+@responses.activate
+def test_flaky_detection_budget_deadline_stops_retries(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    """
+    Test that retries are stopped when they would exceed the budget deadline.
+    """
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_test_names_mock(
+        [
+            "test_flaky_detection_budget_deadline_stops_retries.py::test_existing",
+        ]
+    )
+
+    class CustomPlugin:
+        deadline_patched: bool = False
+
+        def pytest_runtest_protocol(self, item: _pytest.nodes.Item) -> None:
+            plugin = None
+            for existing in item.session.config.pluginmanager.get_plugins():
+                if isinstance(existing, pytest_mergify.PytestMergify):
+                    plugin = existing
+
+            if not plugin or not plugin.mergify_ci.flaky_detector:
+                return
+
+            # The deadline is set so we started detecting flaky tests.
+            if plugin.mergify_ci.flaky_detector._deadline and not self.deadline_patched:
+                # Set the deadline in the past to stop immediately.
+                plugin.mergify_ci.flaky_detector._deadline = datetime.datetime.now(
+                    datetime.timezone.utc
+                ) - datetime.timedelta(hours=1)
+
+                self.deadline_patched = True
+
+    pytester.makepyfile(
+        """
+        def test_existing():
+            assert True
+
+        def test_new():
+            assert True
+        """
+    )
+
+    result = pytester.runpytest_inprocess(
+        plugins=[pytest_mergify.PytestMergify(), CustomPlugin()]
+    )
+
+    # We should have:
+    # - 1 execution of `test_existing`,
+    # - 1 initial execution of `test_new`,
+    # - Only 1 retry of `test_new` before the deadline is reached.
+    result.assert_outcomes(passed=3)
+
+    assert re.search(
+        r"'test_flaky_detection_budget_deadline_stops_retries\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",
+        result.stdout.str(),
+    )
 
 
 def _get_span_counts(
