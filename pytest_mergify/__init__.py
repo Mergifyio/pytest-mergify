@@ -58,7 +58,7 @@ class PytestMergify:
             terminalreporter.write_line(self.mergify_ci.flaky_detector.make_report())
         elif self.mergify_ci.flaky_detector_error_message:
             terminalreporter.write_line(
-                f"""⚠️  Flaky detection couldn't be enabled because of an error.
+                f"""⚠️ Flaky detection couldn't be enabled because of an error.
 
 Common issues:
   • Your 'MERGIFY_TOKEN' might not be set or could be invalid
