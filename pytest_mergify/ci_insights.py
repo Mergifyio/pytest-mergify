@@ -187,7 +187,6 @@ class MergifyCIInsights:
                 token=self.token,
                 url=self.api_url,
                 full_repository_name=self.repo_name,
-                branch_name=self.branch_name,
             )
         except Exception as exception:
             self.flaky_detector_error_message = (

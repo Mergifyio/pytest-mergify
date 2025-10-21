@@ -5,6 +5,9 @@ import pytest
 
 from pytest_mergify import flaky_detection
 
+_MIN_TEST_RETRY_COUNT = 5
+_MAX_TEST_RETRY_COUNT = 1000
+
 
 @pytest.mark.parametrize(
     argnames=["budget_duration", "test_durations", "expected_allocation"],
@@ -37,9 +40,9 @@ from pytest_mergify import flaky_detection
             },
             {
                 "test_a": 233,
-                "test_b": flaky_detection._MAX_TEST_RETRY_COUNT,
+                "test_b": _MAX_TEST_RETRY_COUNT,
                 "test_c": 23,
-                "test_e": flaky_detection._MAX_TEST_RETRY_COUNT,
+                "test_e": _MAX_TEST_RETRY_COUNT,
                 "test_f": 23,
             },
             id="With slow and fast tests",
@@ -84,14 +87,16 @@ def test_allocate_test_retries(
     test_durations: typing.Dict[str, datetime.timedelta],
     expected_allocation: typing.Dict[str, int],
 ) -> None:
-    allocation = flaky_detection._allocate_test_retries(budget_duration, test_durations)
+    allocation = flaky_detection._allocate_test_retries(
+        budget_duration, test_durations, _MIN_TEST_RETRY_COUNT, _MAX_TEST_RETRY_COUNT
+    )
 
     total_duration = datetime.timedelta()
 
     for test, retry_count in allocation.items():
         assert test in test_durations
-        assert retry_count >= flaky_detection._MIN_TEST_RETRY_COUNT
-        assert retry_count <= flaky_detection._MAX_TEST_RETRY_COUNT
+        assert retry_count >= _MIN_TEST_RETRY_COUNT
+        assert retry_count <= _MAX_TEST_RETRY_COUNT
 
         total_duration += test_durations[test] * retry_count
 

@@ -12,13 +12,24 @@ import requests
 
 from pytest_mergify import utils
 
-# NOTE(remyduthu): We are using a hard-coded budget for now, but the idea is to
-# make it configurable in the future.
-_DEFAULT_TEST_RETRY_BUDGET_RATIO = 0.1
-_MAX_TEST_NAME_LENGTH = 65536
-_MIN_TEST_RETRY_COUNT = 5
-_MAX_TEST_RETRY_COUNT = 1000
-_MIN_TEST_RETRY_BUDGET_DURATION = datetime.timedelta(seconds=4)
+
+@dataclasses.dataclass
+class _FlakyDetectionContext:
+    budget_ratio: float
+    existing_test_names: typing.List[str]
+    existing_tests_mean_duration_ms: int
+    max_test_execution_count: int
+    max_test_name_length: int
+    min_budget_duration_ms: int
+    min_test_execution_count: int
+
+    @property
+    def existing_tests_mean_duration(self) -> datetime.timedelta:
+        return datetime.timedelta(milliseconds=self.existing_tests_mean_duration_ms)
+
+    @property
+    def min_budget_duration(self) -> datetime.timedelta:
+        return datetime.timedelta(milliseconds=self.min_budget_duration_ms)
 
 
 @dataclasses.dataclass
@@ -54,17 +65,13 @@ class FlakyDetector:
     token: str
     url: str
     full_repository_name: str
-    branch_name: str
 
     last_collected_test: typing.Optional[str] = dataclasses.field(
         init=False, default=None
     )
+    _context: _FlakyDetectionContext = dataclasses.field(init=False)
     _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
         init=False, default=None
-    )
-    _existing_tests: typing.List[str] = dataclasses.field(
-        init=False,
-        default_factory=list,
     )
     _new_test_metrics: typing.Dict[str, _NewTestMetrics] = dataclasses.field(
         init=False, default_factory=lambda: collections.defaultdict(_NewTestMetrics)
@@ -78,29 +85,25 @@ class FlakyDetector:
     )
 
     def __post_init__(self) -> None:
-        self._existing_tests = self._fetch_existing_tests()
+        self._context = self._fetch_context()
 
-    def _fetch_existing_tests(self) -> typing.List[str]:
+    def _fetch_context(self) -> _FlakyDetectionContext:
         owner, repository_name = utils.split_full_repo_name(
             self.full_repository_name,
         )
 
         response = requests.get(
-            url=f"{self.url}/v1/ci/{owner}/tests/names",
+            url=f"{self.url}/v1/ci/{owner}/repositories/{repository_name}/flaky-detection-context",
             headers={"Authorization": f"Bearer {self.token}"},
-            params={
-                "repository": repository_name,
-                "branch": self.branch_name,
-            },
             timeout=10,
         )
 
         response.raise_for_status()
 
-        result = typing.cast(typing.List[str], response.json()["test_names"])
-        if len(result) == 0:
+        result = _FlakyDetectionContext(**response.json())
+        if len(result.existing_test_names) == 0:
             raise RuntimeError(
-                f"No existing tests found for '{self.full_repository_name}' repository on branch '{self.branch_name}'",
+                f"No existing tests found for '{self.full_repository_name}' repository",
             )
 
         return result
@@ -116,10 +119,10 @@ class FlakyDetector:
         self._total_test_durations += duration
 
         test = report.nodeid
-        if test in self._existing_tests:
+        if test in self._context.existing_test_names:
             return False
 
-        if len(test) > _MAX_TEST_NAME_LENGTH:
+        if len(test) > self._context.max_test_name_length:
             self._over_length_tests.add(test)
             return False
 
@@ -148,9 +151,11 @@ class FlakyDetector:
         if (
             len(self._new_test_metrics) == 0
             and self.last_collected_test
-            and self.last_collected_test not in self._existing_tests
+            and self.last_collected_test not in self._context.existing_test_names
         ):
-            allocation = {self.last_collected_test: _MAX_TEST_RETRY_COUNT}
+            allocation = {
+                self.last_collected_test: self._context.max_test_execution_count,
+            }
         else:
             allocation = _allocate_test_retries(
                 self._get_budget_duration(),
@@ -158,6 +163,8 @@ class FlakyDetector:
                     test: metrics.initial_duration
                     for test, metrics in self._new_test_metrics.items()
                 },
+                self._context.min_test_execution_count,
+                self._context.max_test_execution_count,
             )
 
         items_to_retry = [item for item in session.items if item.nodeid in allocation]
@@ -241,7 +248,7 @@ class FlakyDetector:
             for test in self._over_length_tests:
                 result += (
                     f"{os.linesep}    • '{test}' has not been tested multiple times because the name of the test "
-                    f"exceeds our limit of {_MAX_TEST_NAME_LENGTH} characters"
+                    f"exceeds our limit of {self._context.max_test_name_length} characters"
                 )
 
         if not self._new_test_metrics:
@@ -266,8 +273,8 @@ class FlakyDetector:
         for test, metrics in self._new_test_metrics.items():
             if metrics.scheduled_retry_count == 0:
                 result += (
-                    f"{os.linesep}    • '{test}' is too slow to be tested at least {_MIN_TEST_RETRY_COUNT} times "
-                    "within the budget"
+                    f"{os.linesep}    • '{test}' is too slow to be tested at least "
+                    f"{self._context.min_test_execution_count} times within the budget"
                 )
                 continue
 
@@ -295,19 +302,20 @@ class FlakyDetector:
         execution time.
 
         The budget ensures there's always a minimum time allocated of
-        '_MIN_TEST_RETRY_BUDGET_DURATION' even for very short test suites,
+        'self._context.min_budget_duration' even for very short test suites,
         preventing overly restrictive retry policies when the total test
         duration is small.
         """
         return max(
-            _DEFAULT_TEST_RETRY_BUDGET_RATIO * self._total_test_durations,
-            _MIN_TEST_RETRY_BUDGET_DURATION,
+            self._context.budget_ratio * self._total_test_durations,
+            self._context.min_budget_duration,
         )
 
 
 def _select_affordable_tests(
     budget_duration: datetime.timedelta,
     test_durations: typing.Dict[str, datetime.timedelta],
+    min_test_execution_count: int,
 ) -> typing.Dict[str, datetime.timedelta]:
     """
     Select tests that can be retried within the given budget.
@@ -322,7 +330,7 @@ def _select_affordable_tests(
 
     result = {}
     for test, duration in test_durations.items():
-        expected_retries_duration = duration * _MIN_TEST_RETRY_COUNT
+        expected_retries_duration = duration * min_test_execution_count
         if expected_retries_duration <= budget_per_test:
             result[test] = duration
 
@@ -332,6 +340,8 @@ def _select_affordable_tests(
 def _allocate_test_retries(
     budget_duration: datetime.timedelta,
     test_durations: typing.Dict[str, datetime.timedelta],
+    min_test_execution_count: int,
+    max_test_execution_count: int,
 ) -> typing.Dict[str, int]:
     """
     Distribute retries within a fixed time budget.
@@ -339,11 +349,11 @@ def _allocate_test_retries(
     Why this shape:
 
     1. First, drop tests that aren't affordable (cannot reach
-    `_MIN_TEST_RETRY_COUNT` within the budget). This avoids wasting time on
+    `min_test_execution_count` within the budget). This avoids wasting time on
     tests that would starve the rest.
 
     2. Then allocate from fastest to slowest to free budget early: fast tests
-    often hit `_MAX_TEST_RETRY_COUNT`; when capped, leftover time rolls over to
+    often hit `max_test_execution_count`; when capped, leftover time rolls over to
     slower tests.
 
     3. At each step we recompute a fair per-test slice from the remaining budget
@@ -355,6 +365,7 @@ def _allocate_test_retries(
     affordable_test_durations = _select_affordable_tests(
         budget_duration,
         test_durations,
+        min_test_execution_count,
     )
 
     for test, duration in sorted(
@@ -373,9 +384,9 @@ def _allocate_test_retries(
         # If a test reports a zero duration, it means it's effectively free to
         # retry, so we assign the maximum allowed retries within our global cap.
         if duration <= datetime.timedelta():
-            allocation[test] = _MAX_TEST_RETRY_COUNT
+            allocation[test] = max_test_execution_count
             continue
 
-        allocation[test] = min(budget_per_test // duration, _MAX_TEST_RETRY_COUNT)
+        allocation[test] = min(budget_per_test // duration, max_test_execution_count)
 
     return allocation

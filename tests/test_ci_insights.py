@@ -10,7 +10,7 @@ import responses
 from opentelemetry.sdk import trace
 
 import pytest_mergify
-from pytest_mergify import ci_insights, flaky_detection
+from pytest_mergify import ci_insights
 
 from . import conftest
 
@@ -35,11 +35,28 @@ def _make_quarantine_mock() -> None:
     )
 
 
-def _make_test_names_mock(test_names: typing.List[str] = [], status: int = 200) -> None:
+def _make_flaky_detection_context_mock(
+    budget_ratio: float = 0.1,
+    existing_test_names: typing.List[str] = [],
+    existing_tests_mean_duration_ms: int = 0,
+    max_test_execution_count: int = 1000,
+    max_test_name_length: int = 65536,
+    min_budget_duration_ms: int = 4000,
+    min_test_execution_count: int = 5,
+    status: int = 200,
+) -> None:
     responses.add(
         method=responses.GET,
-        url="https://example.com/v1/ci/Mergifyio/tests/names",
-        json={"test_names": test_names},
+        url="https://example.com/v1/ci/Mergifyio/repositories/pytest-mergify/flaky-detection-context",
+        json={
+            "budget_ratio": budget_ratio,
+            "existing_test_names": existing_test_names,
+            "existing_tests_mean_duration_ms": existing_tests_mean_duration_ms,
+            "max_test_execution_count": max_test_execution_count,
+            "max_test_name_length": max_test_name_length,
+            "min_budget_duration_ms": min_budget_duration_ms,
+            "min_test_execution_count": min_test_execution_count,
+        },
         status=status,
     )
 
@@ -57,12 +74,15 @@ def test_load_flaky_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_test_environment(monkeypatch)
 
     _make_quarantine_mock()
-    _make_test_names_mock(test_names=["a::test_a", "b::test_b"])
+    _make_flaky_detection_context_mock(existing_test_names=["a::test_a", "b::test_b"])
 
     client = _make_test_client()
     assert not client.flaky_detector_error_message
     assert client.flaky_detector is not None
-    assert client.flaky_detector._existing_tests == ["a::test_a", "b::test_b"]
+    assert client.flaky_detector._context.existing_test_names == [
+        "a::test_a",
+        "b::test_b",
+    ]
 
 
 @responses.activate
@@ -70,7 +90,7 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_test_environment(monkeypatch)
 
     _make_quarantine_mock()
-    _make_test_names_mock(status=500)
+    _make_flaky_detection_context_mock(status=500)
 
     client = _make_test_client()
     assert client.flaky_detector is None
@@ -85,13 +105,13 @@ def test_load_flaky_detection_error_without_existing_tests(
     _set_test_environment(monkeypatch)
 
     _make_quarantine_mock()
-    _make_test_names_mock([])
+    _make_flaky_detection_context_mock(existing_test_names=[])
 
     client = _make_test_client()
     assert client.flaky_detector is None
     assert client.flaky_detector_error_message is not None
     assert (
-        "No existing tests found for 'Mergifyio/pytest-mergify' repository on branch 'main'"
+        "No existing tests found for 'Mergifyio/pytest-mergify' repository"
         in client.flaky_detector_error_message
     )
 
@@ -101,13 +121,16 @@ def test_flaky_detection(
     monkeypatch: pytest.MonkeyPatch,
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
+    max_test_name_length = 100
+
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
-    _make_test_names_mock(
-        [
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
             "test_flaky_detection.py::test_foo",
             "test_flaky_detection.py::test_unknown",
-        ]
+        ],
+        max_test_name_length=max_test_name_length,
     )
 
     result, spans = pytester_with_spans(
@@ -146,7 +169,7 @@ def test_flaky_detection(
         def test_qux():
             pytest.skip("I'm skipped!")
 
-        def test_quux_{"a" * (flaky_detection._MAX_TEST_NAME_LENGTH + 10)}():
+        def test_quux_{"a" * (max_test_name_length + 10)}():
             assert True
 
         def test_corge():
@@ -205,8 +228,10 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
 ) -> None:
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
-    _make_test_names_mock(
-        ["test_flaky_detection_with_only_one_new_test_at_the_end.py::test_foo"]
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_with_only_one_new_test_at_the_end.py::test_foo",
+        ]
     )
 
     result, spans = pytester_with_spans(
@@ -249,7 +274,9 @@ def test_flaky_detection_clones_items(
 ) -> None:
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
-    _make_test_names_mock(["test_flaky_detection_clones_items.py::test_foo"])
+    _make_flaky_detection_context_mock(
+        existing_test_names=["test_flaky_detection_clones_items.py::test_foo"],
+    )
 
     result, spans = pytester_with_spans(
         code="""
@@ -274,16 +301,14 @@ def test_flaky_detection_slow_test_not_retried(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
 ) -> None:
-    """
-    Test that a slow test is not retried when it can't reach
-    `flaky_detection._MIN_TEST_RETRY_COUNT` within the budget.
-    """
+    "Test that a slow test is not retried when it can't reach 5 within the budget."
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
-    _make_test_names_mock(
-        [
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
             "test_flaky_detection_slow_test_not_retried.py::test_existing",
-        ]
+        ],
+        min_test_execution_count=5,
     )
 
     class CustomPlugin:
@@ -325,7 +350,7 @@ def test_flaky_detection_slow_test_not_retried(
     )
 
     assert (
-        f"'test_flaky_detection_slow_test_not_retried.py::test_slow' is too slow to be tested at least {flaky_detection._MIN_TEST_RETRY_COUNT} times within the budget"
+        "'test_flaky_detection_slow_test_not_retried.py::test_slow' is too slow to be tested at least 5 times within the budget"
         in result.stdout.str()
     )
 
@@ -340,8 +365,8 @@ def test_flaky_detection_budget_deadline_stops_retries(
     """
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
-    _make_test_names_mock(
-        [
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
             "test_flaky_detection_budget_deadline_stops_retries.py::test_existing",
         ]
     )
