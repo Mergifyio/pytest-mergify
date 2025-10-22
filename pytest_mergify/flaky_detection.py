@@ -1,11 +1,9 @@
-import collections
 import dataclasses
 import datetime
 import os
 import typing
 
 import _pytest
-import _pytest.main
 import _pytest.nodes
 import _pytest.reports
 import requests
@@ -41,6 +39,10 @@ class _NewTestMetrics:
     )
     "Represents the duration of the initial execution of the test."
 
+    # NOTE(remyduthu): We need this flag because we may have processed a test
+    # without scheduling retries for it (e.g., because it was too slow).
+    is_processed: bool = dataclasses.field(default=False)
+
     retry_count: int = dataclasses.field(default=0)
     "Represents the number of times the test has been retried so far."
 
@@ -66,22 +68,15 @@ class FlakyDetector:
     url: str
     full_repository_name: str
 
-    last_collected_test: typing.Optional[str] = dataclasses.field(
-        init=False, default=None
-    )
     _context: _FlakyDetectionContext = dataclasses.field(init=False)
     _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
         init=False, default=None
     )
     _new_test_metrics: typing.Dict[str, _NewTestMetrics] = dataclasses.field(
-        init=False, default_factory=lambda: collections.defaultdict(_NewTestMetrics)
+        init=False, default_factory=dict
     )
     _over_length_tests: typing.Set[str] = dataclasses.field(
         init=False, default_factory=set
-    )
-    _total_test_durations: datetime.timedelta = dataclasses.field(
-        init=False,
-        default=datetime.timedelta(),
     )
 
     def __post_init__(self) -> None:
@@ -115,9 +110,6 @@ class FlakyDetector:
         if report.outcome not in ["failed", "passed"]:
             return False
 
-        duration = datetime.timedelta(seconds=report.duration)
-        self._total_test_durations += duration
-
         test = report.nodeid
         if test in self._context.existing_test_names:
             return False
@@ -126,117 +118,37 @@ class FlakyDetector:
             self._over_length_tests.add(test)
             return False
 
-        self._new_test_metrics[test].add_duration(duration)
+        metrics = self._new_test_metrics.setdefault(report.nodeid, _NewTestMetrics())
+        metrics.add_duration(datetime.timedelta(seconds=report.duration))
 
         return True
 
-    def _get_budget_deadline(self) -> datetime.datetime:
-        return (
-            datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
+    def get_retry_count_for_new_test(self, test: str) -> int:
+        metrics = self._new_test_metrics.get(test)
+        if not metrics:
+            return 0
+
+        budget_per_test = (
+            self._get_duration_before_deadline() / self._count_remaining_new_tests()
         )
+        result = int(budget_per_test / metrics.initial_duration)
+        result = min(result, self._context.max_test_execution_count)
 
-    def _get_remaining_items(
-        self,
-        session: _pytest.main.Session,
-    ) -> typing.List[_pytest.nodes.Item]:
-        """
-        Return the remaining items for this session based on the current state
-        of the flaky detection. It can be called multiple times as we track
-        already scheduled retries so we only return what's still needed.
-        """
+        # NOTE(remyduthu): Count as processed even if it's too slow.
+        metrics.is_processed = True
 
-        # If we have exactly one new test and it's the last one, we can't know
-        # its duration yet, so allocate max retries directly and rely on the
-        # budget deadline instead of going through the budget allocation.
-        if (
-            len(self._new_test_metrics) == 0
-            and self.last_collected_test
-            and self.last_collected_test not in self._context.existing_test_names
-        ):
-            allocation = {
-                self.last_collected_test: self._context.max_test_execution_count,
-            }
-        else:
-            allocation = _allocate_test_retries(
-                self._get_budget_duration(),
-                {
-                    test: metrics.initial_duration
-                    for test, metrics in self._new_test_metrics.items()
-                },
-                self._context.min_test_execution_count,
-                self._context.max_test_execution_count,
-            )
+        if result < self._context.min_test_execution_count:
+            return 0
 
-        items_to_retry = [item for item in session.items if item.nodeid in allocation]
-
-        result = []
-        for item in items_to_retry:
-            expected_retries = int(allocation[item.nodeid])
-            existing_retries = int(
-                self._new_test_metrics[item.nodeid].scheduled_retry_count,
-            )
-
-            remaining_retries = max(0, expected_retries - existing_retries)
-            for _ in range(remaining_retries):
-                # The parent is a class or a module in our case. It should
-                # always be defined, but we handle it gracefully just in case.
-                if not item.parent:
-                    continue
-
-                self._new_test_metrics[item.nodeid].scheduled_retry_count += 1
-
-                clone = item.__class__.from_parent(
-                    name=item.name,
-                    parent=item.parent,
-                )
-                result.append(clone)
-
-        # Manually trigger pytest hooks for the new items. This ensures plugins
-        # like `pytest-asyncio` process them.
-        session.config.hook.pytest_collection_modifyitems(
-            session=session,
-            config=session.config,
-            items=result,
-        )
+        metrics.scheduled_retry_count = result
 
         return result
 
-    def handle_item(
-        self,
-        item: _pytest.nodes.Item,
-        nextitem: typing.Optional[_pytest.nodes.Item],
-    ) -> None:
-        if self._deadline:
-            if datetime.datetime.now(datetime.timezone.utc) > self._deadline:
-                # Hard deadline to protect the budget allocated to flaky
-                # detection. If tests take longer than expected, we stop
-                # immediately.
-                item.session.items.clear()
-
-            return
-
-        # Before we run the last item, append the items generated by the flaky
-        # detector so this test's teardown still sees a next test. Otherwise
-        # pytest considers the session finished, tears down session-scoped
-        # fixtures, and our end-of-queue retries won't run.
-        is_just_before_last_item = (
-            self.last_collected_test
-            and nextitem
-            and self.last_collected_test == nextitem.nodeid
+    def is_deadline_exceeded(self) -> bool:
+        return (
+            self._deadline is not None
+            and datetime.datetime.now(datetime.timezone.utc) >= self._deadline
         )
-
-        # After we run the last item, we know how long it took. If that unlocks
-        # more budget for the flaky detection, use it now.
-        is_last_item = (
-            self.last_collected_test and self.last_collected_test == item.nodeid
-        )
-        if not (is_just_before_last_item or is_last_item):
-            return
-
-        item.session.items.extend(self._get_remaining_items(item.session))
-
-        if is_last_item:
-            self._deadline = self._get_budget_deadline()
 
     def make_report(self) -> str:
         result = "🐛 Flaky detection"
@@ -296,97 +208,34 @@ class FlakyDetector:
 
         return result
 
-    def _get_budget_duration(self) -> datetime.timedelta:
-        """
-        Calculate the budget duration based on a percentage of total test
-        execution time.
+    def set_deadline(self) -> None:
+        self._deadline = (
+            datetime.datetime.now(datetime.timezone.utc)
+            + self._context.existing_tests_mean_duration
+            + self._get_budget_duration()
+        )
 
-        The budget ensures there's always a minimum time allocated of
-        'self._context.min_budget_duration' even for very short test suites,
-        preventing overly restrictive retry policies when the total test
-        duration is small.
-        """
+    def _count_remaining_new_tests(self) -> int:
+        return sum(
+            1 for metrics in self._new_test_metrics.values() if not metrics.is_processed
+        )
+
+    def _get_budget_duration(self) -> datetime.timedelta:
+        total_duration = self._context.existing_tests_mean_duration * len(
+            self._context.existing_test_names
+        )
+
+        # NOTE(remyduthu): We want to ensure a minimum duration even for very short test suites.
         return max(
-            self._context.budget_ratio * self._total_test_durations,
+            self._context.budget_ratio * total_duration,
             self._context.min_budget_duration,
         )
 
+    def _get_duration_before_deadline(self) -> datetime.timedelta:
+        if not self._deadline:
+            return datetime.timedelta()
 
-def _select_affordable_tests(
-    budget_duration: datetime.timedelta,
-    test_durations: typing.Dict[str, datetime.timedelta],
-    min_test_execution_count: int,
-) -> typing.Dict[str, datetime.timedelta]:
-    """
-    Select tests that can be retried within the given budget.
-
-    This ensures we don't select tests that would exceed our time constraints
-    even with the minimum number of retries.
-    """
-    if len(test_durations) == 0:
-        return {}
-
-    budget_per_test = budget_duration / len(test_durations)
-
-    result = {}
-    for test, duration in test_durations.items():
-        expected_retries_duration = duration * min_test_execution_count
-        if expected_retries_duration <= budget_per_test:
-            result[test] = duration
-
-    return result
-
-
-def _allocate_test_retries(
-    budget_duration: datetime.timedelta,
-    test_durations: typing.Dict[str, datetime.timedelta],
-    min_test_execution_count: int,
-    max_test_execution_count: int,
-) -> typing.Dict[str, int]:
-    """
-    Distribute retries within a fixed time budget.
-
-    Why this shape:
-
-    1. First, drop tests that aren't affordable (cannot reach
-    `min_test_execution_count` within the budget). This avoids wasting time on
-    tests that would starve the rest.
-
-    2. Then allocate from fastest to slowest to free budget early: fast tests
-    often hit `max_test_execution_count`; when capped, leftover time rolls over to
-    slower tests.
-
-    3. At each step we recompute a fair per-test slice from the remaining budget
-    and remaining tests, so the distribution adapts as we go.
-    """
-
-    allocation: typing.Dict[str, int] = {}
-
-    affordable_test_durations = _select_affordable_tests(
-        budget_duration,
-        test_durations,
-        min_test_execution_count,
-    )
-
-    for test, duration in sorted(
-        affordable_test_durations.items(),
-        key=lambda item: item[1],
-    ):
-        remaining_budget = budget_duration - sum(
-            (allocation[t] * affordable_test_durations[t] for t in allocation),
-            start=datetime.timedelta(),
+        return max(
+            self._deadline - datetime.datetime.now(datetime.timezone.utc),
+            datetime.timedelta(),
         )
-        remaining_test_count = len(affordable_test_durations) - len(allocation)
-
-        budget_per_test = remaining_budget / remaining_test_count
-
-        # Guard against zero or negative duration to prevent division by zero.
-        # If a test reports a zero duration, it means it's effectively free to
-        # retry, so we assign the maximum allowed retries within our global cap.
-        if duration <= datetime.timedelta():
-            allocation[test] = max_test_execution_count
-            continue
-
-        allocation[test] = min(budget_per_test // duration, max_test_execution_count)
-
-    return allocation

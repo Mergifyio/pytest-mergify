@@ -3,7 +3,6 @@ import re
 import typing
 
 import _pytest.nodes
-import _pytest.pytester
 import _pytest.reports
 import pytest
 import responses
@@ -177,18 +176,11 @@ def test_flaky_detection(
         """
     )
 
-    outcomes = result.parseoutcomes()
-
-    # We can't predict the exact number because it depends on the time it takes
-    # to run the tests. We just want to make sure that the tests are tested
-    # multiple time.
-    assert outcomes["passed"] > 1000
-
-    # Only the first run of the flaky test.
-    assert outcomes["failed"] == 1
-
-    # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
-    assert outcomes["skipped"] == 1
+    result.assert_outcomes(
+        failed=1,  # Only the first execution of the flaky test.
+        passed=3004,  # The initial execution of the 4 tests and 1000 executions for each new test.
+        skipped=1,  # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
+    )
 
     assert re.search(
         r"""🐛 Flaky detection
@@ -206,7 +198,7 @@ def test_flaky_detection(
     assert spans is not None
 
     # 1 span for the session and one per test.
-    assert len(spans) == 1 + sum(outcomes.values())
+    assert len(spans) == 1 + sum(result.parseoutcomes().values())
 
     new_tests = [
         "test_flaky_detection.py::test_bar",
@@ -373,8 +365,9 @@ def test_flaky_detection_budget_deadline_stops_retries(
 
     class CustomPlugin:
         deadline_patched: bool = False
+        execution_count: int = 0
 
-        def pytest_runtest_protocol(self, item: _pytest.nodes.Item) -> None:
+        def pytest_runtest_call(self, item: _pytest.nodes.Item) -> None:
             plugin = None
             for existing in item.session.config.pluginmanager.get_plugins():
                 if isinstance(existing, pytest_mergify.PytestMergify):
@@ -383,8 +376,10 @@ def test_flaky_detection_budget_deadline_stops_retries(
             if not plugin or not plugin.mergify_ci.flaky_detector:
                 return
 
-            # The deadline is set so we started detecting flaky tests.
-            if plugin.mergify_ci.flaky_detector._deadline and not self.deadline_patched:
+            self.execution_count += 1
+
+            # Simulate a slow execution that reaches the deadline.
+            if not self.deadline_patched and self.execution_count == 10:
                 # Set the deadline in the past to stop immediately.
                 plugin.mergify_ci.flaky_detector._deadline = datetime.datetime.now(
                     datetime.timezone.utc
@@ -409,8 +404,8 @@ def test_flaky_detection_budget_deadline_stops_retries(
     # We should have:
     # - 1 execution of `test_existing`,
     # - 1 initial execution of `test_new`,
-    # - Only 1 retry of `test_new` before the deadline is reached.
-    result.assert_outcomes(passed=3)
+    # - Only 8 retries of `test_new` before the deadline is reached.
+    result.assert_outcomes(passed=10)
 
     assert re.search(
         r"'test_flaky_detection_budget_deadline_stops_retries\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",
