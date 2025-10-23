@@ -3,6 +3,7 @@ import re
 import typing
 
 import _pytest.nodes
+import _pytest.pytester
 import _pytest.reports
 import pytest
 import responses
@@ -411,6 +412,42 @@ def test_flaky_detection_budget_deadline_stops_retries(
         r"'test_flaky_detection_budget_deadline_stops_retries\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",
         result.stdout.str(),
     )
+
+
+@responses.activate
+def test_flaky_detector_filter_existing_tests_with_session(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detector_filter_existing_tests_with_session.py::test_foo",
+            "test_flaky_detector_filter_existing_tests_with_session.py::test_bar",
+            "test_flaky_detector_filter_existing_tests_with_session.py::test_baz",  # Unknown test, should be filtered.
+        ]
+    )
+
+    pytester.makepyfile(
+        """
+        def test_foo():
+            assert True
+
+        def test_bar():
+            assert True
+        """
+    )
+
+    plugin = pytest_mergify.PytestMergify()
+
+    result = pytester.runpytest_inprocess(plugins=[plugin])
+    result.assert_outcomes(passed=2)  # 2 existing tests.
+
+    assert plugin.mergify_ci.flaky_detector is not None
+
+    # Unknown test should have been filtered out after collection.
+    assert len(plugin.mergify_ci.flaky_detector._context.existing_test_names) == 2
 
 
 def _get_span_counts(

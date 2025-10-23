@@ -4,7 +4,7 @@ import os
 import typing
 
 import _pytest
-import _pytest.nodes
+import _pytest.main
 import _pytest.reports
 import requests
 
@@ -122,6 +122,12 @@ class FlakyDetector:
         metrics.add_duration(datetime.timedelta(seconds=report.duration))
 
         return True
+
+    def filter_existing_tests_with_session(self, session: _pytest.main.Session) -> None:
+        session_tests = {item.nodeid for item in session.items}
+        self._context.existing_test_names = [
+            test for test in self._context.existing_test_names if test in session_tests
+        ]
 
     def get_retry_count_for_new_test(self, test: str) -> int:
         metrics = self._new_test_metrics.get(test)

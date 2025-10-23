@@ -139,6 +139,10 @@ Common issues:
         if self.mergify_ci.flaky_detector:
             self.mergify_ci.flaky_detector.set_deadline()
 
+    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
+        if self.mergify_ci.flaky_detector:
+            self.mergify_ci.flaky_detector.filter_existing_tests_with_session(session)
+
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
         self,
