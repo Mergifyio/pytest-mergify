@@ -137,13 +137,7 @@ Common issues:
         self.has_error = False
 
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.last_collected_test = None
-
-    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
-        if self.mergify_ci.flaky_detector and len(session.items) > 0:
-            self.mergify_ci.flaky_detector.last_collected_test = session.items[
-                -1
-            ].nodeid
+            self.mergify_ci.flaky_detector.set_deadline()
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
@@ -163,55 +157,75 @@ Common issues:
         )
         self.session_span.end()
 
-    def _attributes_from_item(
+    def _get_item_attributes(
         self, item: _pytest.nodes.Item
-    ) -> typing.Dict[str, typing.Union[str, int]]:
+    ) -> typing.Dict[str, typing.Any]:
         filepath, line_number, testname = item.location
         namespace = testname.replace(item.name, "")
         if namespace.endswith("."):
             namespace = namespace[:-1]
 
-        return {
+        result = {
             SpanAttributes.CODE_FILEPATH: filepath,
             SpanAttributes.CODE_FUNCTION: item.name,
             SpanAttributes.CODE_LINENO: line_number or 0,
             SpanAttributes.CODE_NAMESPACE: namespace,
             "code.file.path": str(_pytest.pathlib.absolutepath(item.reportinfo()[0])),
             "code.line.number": line_number or 0,
+            "test.scope": "case",
         }
+
+        if _should_skip_item(item):
+            result["cicd.test.quarantined"] = False
+            result["test.case.result.status"] = "skipped"
+        else:
+            result["cicd.test.quarantined"] = (
+                self.mergify_ci.mark_test_as_quarantined_if_needed(item)
+            )
+
+        return result
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_protocol(
         self,
         item: _pytest.nodes.Item,
-        nextitem: typing.Optional[_pytest.nodes.Item],
     ) -> typing.Generator[None, None, None]:
         if not self.tracer:
             yield
             return
 
-        additional_attributes: typing.Dict[str, typing.Any] = {}
-        if _should_skip_item(item):
-            additional_attributes["test.case.result.status"] = "skipped"
-            additional_attributes["cicd.test.quarantined"] = False
-        else:
-            quarantined = self.mergify_ci.mark_test_as_quarantined_if_needed(item)
-            additional_attributes["cicd.test.quarantined"] = quarantined
-
-        context = opentelemetry.trace.set_span_in_context(self.session_span)
         with self.tracer.start_as_current_span(
             item.nodeid,
-            attributes={
-                **self._attributes_from_item(item),
-                **additional_attributes,
-                **{"test.scope": "case"},
-            },
-            context=context,
+            attributes=self._get_item_attributes(item),
+            context=opentelemetry.trace.set_span_in_context(self.session_span),
         ):
             yield
 
-            if self.mergify_ci.flaky_detector:
-                self.mergify_ci.flaky_detector.handle_item(item, nextitem)
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_teardown(self, item: _pytest.nodes.Item) -> None:
+        # NOTE(remyduthu):
+        # We run flaky detection during the teardown phase because setup has
+        # already finished and we only need to focus on the call phase. At this
+        # point, we know how long the initial execution took, which lets us
+        # calculate the number of retries. This timing also ensures all
+        # fixtures, including session-scoped ones, are still available before
+        # the item is completely torn down.
+        if not self.tracer or not self.mergify_ci.flaky_detector:
+            return
+
+        attributes = self._get_item_attributes(item)
+        context = opentelemetry.trace.set_span_in_context(self.session_span)
+
+        for _ in range(
+            self.mergify_ci.flaky_detector.get_retry_count_for_new_test(item.nodeid)
+        ):
+            if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+                return
+
+            with self.tracer.start_as_current_span(
+                item.nodeid, attributes=attributes, context=context
+            ):
+                _pytest.runner.call_and_report(item=item, log=True, when="call")
 
     def pytest_exception_interact(
         self,
@@ -270,9 +284,7 @@ Common issues:
         if self.mergify_ci.flaky_detector:
             detected = self.mergify_ci.flaky_detector.detect_from_report(report)
             if detected:
-                opentelemetry.trace.get_current_span().set_attributes(
-                    {"cicd.test.new": True}
-                )
+                test_span.set_attributes({"cicd.test.new": True})
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
