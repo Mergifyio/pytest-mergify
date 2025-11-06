@@ -189,47 +189,62 @@ Common issues:
 
         return result
 
-    @pytest.hookimpl(hookwrapper=True)
+    @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_protocol(
         self,
         item: _pytest.nodes.Item,
-    ) -> typing.Generator[None, None, None]:
+        nextitem: typing.Optional[_pytest.nodes.Item],
+    ) -> typing.Optional[bool]:
+        # Returning `None` lets pytest continue with its normal test execution
+        # flow. Returning `True` means we took care of running the protocol.
+        # See:
+        # https://docs.pytest.org/en/7.1.x/how-to/writing_hook_functions.html#firstresult
         if not self.tracer:
-            yield
-            return
-
-        with self.tracer.start_as_current_span(
-            item.nodeid,
-            attributes=self._get_item_attributes(item),
-            context=opentelemetry.trace.set_span_in_context(self.session_span),
-        ):
-            yield
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_runtest_teardown(self, item: _pytest.nodes.Item) -> None:
-        # NOTE(remyduthu):
-        # We run flaky detection during the teardown phase because setup has
-        # already finished and we only need to focus on the call phase. At this
-        # point, we know how long the initial execution took, which lets us
-        # calculate the number of retries. This timing also ensures all
-        # fixtures, including session-scoped ones, are still available before
-        # the item is completely torn down.
-        if not self.tracer or not self.mergify_ci.flaky_detector:
-            return
+            return None
 
         attributes = self._get_item_attributes(item)
         context = opentelemetry.trace.set_span_in_context(self.session_span)
 
+        # Execute the initial protocol to register its duration, which lets us
+        # calculate the number of retries.
+        with self.tracer.start_as_current_span(
+            item.nodeid, attributes=attributes, context=context
+        ):
+            _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
+
+        if not self.mergify_ci.flaky_detector:
+            return True
+
         for _ in range(
             self.mergify_ci.flaky_detector.get_retry_count_for_new_test(item.nodeid)
         ):
-            if self.mergify_ci.flaky_detector.is_deadline_exceeded():
-                return
-
             with self.tracer.start_as_current_span(
                 item.nodeid, attributes=attributes, context=context
             ):
-                _pytest.runner.call_and_report(item=item, log=True, when="call")
+                _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
+
+            if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+                return True
+
+        return True
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_teardown(
+        self,
+        item: _pytest.nodes.Item,
+    ) -> None:
+        if not self.mergify_ci.flaky_detector:
+            return
+
+        # The goal here is to keep only function-scoped finalizers during
+        # retries and restore higher-scoped finalizers only on the last retry.
+        if (
+            self.mergify_ci.flaky_detector.is_deadline_exceeded()
+            or self.mergify_ci.flaky_detector.is_last_retry_for_new_test(item.nodeid)
+        ):
+            self.mergify_ci.flaky_detector.restore_item_finalizers(item)
+        else:
+            self.mergify_ci.flaky_detector.suspend_item_finalizers(item)
 
     def pytest_exception_interact(
         self,

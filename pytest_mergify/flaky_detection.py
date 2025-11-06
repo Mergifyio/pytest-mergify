@@ -5,6 +5,7 @@ import typing
 
 import _pytest
 import _pytest.main
+import _pytest.nodes
 import _pytest.reports
 import requests
 
@@ -78,6 +79,34 @@ class FlakyDetector:
     _over_length_tests: typing.Set[str] = dataclasses.field(
         init=False, default_factory=set
     )
+
+    _suspended_item_finalizers: typing.Dict[_pytest.nodes.Node, typing.Any] = (
+        dataclasses.field(
+            init=False,
+            default_factory=dict,
+        )
+    )
+    """
+    Storage for temporarily suspended fixture finalizers during flaky detection.
+
+    Pytest maintains a `session._setupstate.stack` dictionary that tracks which
+    fixture teardown functions (finalizers) need to run when a scope ends:
+
+        {
+            <test_item>: [(finalizer_fn, ...), exception_info],     # Function scope.
+            <class_node>: [(finalizer_fn, ...), exception_info],    # Class scope.
+            <module_node>: [(finalizer_fn, ...), exception_info],   # Module scope.
+            <session>: [(finalizer_fn, ...), exception_info]        # Session scope.
+        }
+
+    When retrying a test, we want to:
+
+    - Tear down and re-setup function-scoped fixtures for each retry.
+    - Keep higher-scoped fixtures alive across all retries.
+
+    This approach is inspired by pytest-rerunfailures:
+    https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L503-L542
+    """
 
     def __post_init__(self) -> None:
         self._context = self._fetch_context()
@@ -220,6 +249,49 @@ class FlakyDetector:
             + self._context.existing_tests_mean_duration
             + self._get_budget_duration()
         )
+
+    def is_last_retry_for_new_test(self, test: str) -> bool:
+        "Returns true if the given test is a new test and this is its last retry."
+
+        metrics = self._new_test_metrics.get(test)
+        if not metrics:
+            return False
+
+        return (
+            metrics.scheduled_retry_count != 0
+            and metrics.scheduled_retry_count + 1  # Add the initial execution.
+            == metrics.retry_count
+        )
+
+    def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:
+        """
+        Suspend all finalizers except the ones at the function-level.
+
+        See: https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L532-L538
+        """
+
+        if item not in item.session._setupstate.stack:
+            return
+
+        for stacked_item in list(item.session._setupstate.stack.keys()):
+            if stacked_item == item:
+                continue
+
+            if stacked_item not in self._suspended_item_finalizers:
+                self._suspended_item_finalizers[stacked_item] = (
+                    item.session._setupstate.stack[stacked_item]
+                )
+            del item.session._setupstate.stack[stacked_item]
+
+    def restore_item_finalizers(self, item: _pytest.nodes.Item) -> None:
+        """
+        Restore previously suspended finalizers.
+
+        See: https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L540-L542
+        """
+
+        item.session._setupstate.stack.update(self._suspended_item_finalizers)
+        self._suspended_item_finalizers.clear()
 
     def _count_remaining_new_tests(self) -> int:
         return sum(
