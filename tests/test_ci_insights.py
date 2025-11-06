@@ -11,8 +11,7 @@ from opentelemetry.sdk import trace
 
 import pytest_mergify
 from pytest_mergify import ci_insights
-
-from . import conftest
+from tests import conftest
 
 
 def _set_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,19 +136,6 @@ def test_flaky_detection(
         code=f"""
         import pytest
 
-        SESSION_ALREADY_SET = False
-
-        @pytest.fixture(scope="session", autouse=True)
-        def _setup_session() -> None:
-            global SESSION_ALREADY_SET
-            if SESSION_ALREADY_SET:
-                raise RuntimeError("This function should not be called twice")
-            SESSION_ALREADY_SET = True
-
-        @pytest.fixture(autouse=True)
-        def _setup_test() -> None:
-            pass
-
         def test_foo():
             assert True
 
@@ -212,6 +198,75 @@ def test_flaky_detection(
 
         is_new_test = span.name in new_tests
         assert span.attributes.get("cicd.test.new", False) == is_new_test
+
+
+@responses.activate
+def test_flaky_detection_with_fixtures(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    max_test_name_length = 100
+
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_with_fixtures.py::test_first",
+            "test_flaky_detection_with_fixtures.py::test_last",
+        ],
+        max_test_name_length=max_test_name_length,
+    )
+
+    result, spans = pytester_with_spans(
+        code="""
+        import pytest
+
+        SESSION_ALREADY_SET = False
+
+        SETUP_COUNT = 0
+        TEARDOWN_COUNT = 0
+
+        @pytest.fixture(scope="session", autouse=True)
+        def _setup_session() -> None:
+            global SESSION_ALREADY_SET
+            if SESSION_ALREADY_SET:
+                raise RuntimeError("This function should not be called twice")
+            SESSION_ALREADY_SET = True
+
+        @pytest.fixture(autouse=True)
+        def _setup_test():
+            global SETUP_COUNT, TEARDOWN_COUNT
+
+            SETUP_COUNT += 1
+
+            yield
+
+            TEARDOWN_COUNT += 1
+
+        def test_first():
+            assert True
+
+        # This is a new test.
+        def test_second():
+            assert True
+
+        def test_last():
+            # This test validates that fixtures are properly set up and torn down
+            # during test retries. With 3 tests total (test_first, test_second, test_last)
+            # where test_second is new and gets retried 1000 times:
+            # - SETUP_COUNT should be 1003 (1 initial run per test + 1000 retries of test_second)
+            # - TEARDOWN_COUNT should be 1002 (all tests complete except test_last which is currently running)
+            # This ensures that function-scoped fixtures execute fresh for each retry,
+            # while session-scoped fixtures run only once (validated by SESSION_ALREADY_SET).
+            global SETUP_COUNT, TEARDOWN_COUNT
+            assert SETUP_COUNT == 1003
+            assert TEARDOWN_COUNT == 1002  # Teardown hasn't run yet for test_last.
+        """
+    )
+
+    result.assert_outcomes(
+        passed=1003,  # The initial execution of the 3 tests and 1000 executions for the new test.
+    )
 
 
 @responses.activate
