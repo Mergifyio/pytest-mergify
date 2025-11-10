@@ -10,11 +10,14 @@ import responses
 from opentelemetry.sdk import trace
 
 import pytest_mergify
-from pytest_mergify import ci_insights
+from pytest_mergify import ci_insights, flaky_detection
 from tests import conftest
 
 
-def _set_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def _set_test_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: flaky_detection.FlakyDetectorMode = flaky_detection.FlakyDetectorMode.NEW,
+) -> None:
     monkeypatch.setenv("_MERGIFY_TEST_NEW_FLAKY_DETECTION", "true")
     monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
     monkeypatch.setenv("CI", "true")
@@ -23,6 +26,15 @@ def _set_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
     monkeypatch.setenv("MERGIFY_API_URL", "https://example.com")
     monkeypatch.setenv("MERGIFY_TOKEN", "my_token")
+
+    if mode == flaky_detection.FlakyDetectorMode.UNHEALTHY:
+        # Simulate absence of a PR context: without `GITHUB_BASE_REF` and
+        # `GITHUB_REF_NAME` `MergifyCIInsights.branch_name` can't be derived,
+        # forcing the flaky detector to fall back to `UNHEALTHY` mode. This
+        # explicitly exercises the fallback path used when no PR metadata is
+        # available.
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
 
 
 def _make_quarantine_mock() -> None:
@@ -36,8 +48,10 @@ def _make_quarantine_mock() -> None:
 
 def _make_flaky_detection_context_mock(
     budget_ratio: float = 0.1,
+    budget_ratio_for_unhealthy_tests: float = 0.05,
     existing_test_names: typing.List[str] = [],
     existing_tests_mean_duration_ms: int = 0,
+    unhealthy_test_names: typing.List[str] = [],
     max_test_execution_count: int = 1000,
     max_test_name_length: int = 65536,
     min_budget_duration_ms: int = 4000,
@@ -49,8 +63,10 @@ def _make_flaky_detection_context_mock(
         url="https://example.com/v1/ci/Mergifyio/repositories/pytest-mergify/flaky-detection-context",
         json={
             "budget_ratio": budget_ratio,
+            "budget_ratio_for_unhealthy_tests": budget_ratio_for_unhealthy_tests,
             "existing_test_names": existing_test_names,
             "existing_tests_mean_duration_ms": existing_tests_mean_duration_ms,
+            "unhealthy_test_names": unhealthy_test_names,
             "max_test_execution_count": max_test_execution_count,
             "max_test_name_length": max_test_name_length,
             "min_budget_duration_ms": min_budget_duration_ms,
@@ -116,7 +132,7 @@ def test_load_flaky_detection_error_without_existing_tests(
 
 
 @responses.activate
-def test_flaky_detection(
+def test_flaky_detection_for_new_tests(
     monkeypatch: pytest.MonkeyPatch,
     pytester_with_spans: conftest.PytesterWithSpanT,
 ) -> None:
@@ -126,8 +142,8 @@ def test_flaky_detection(
     _make_quarantine_mock()
     _make_flaky_detection_context_mock(
         existing_test_names=[
-            "test_flaky_detection.py::test_foo",
-            "test_flaky_detection.py::test_unknown",
+            "test_flaky_detection_for_new_tests.py::test_foo",
+            "test_flaky_detection_for_new_tests.py::test_unknown",
         ],
         max_test_name_length=max_test_name_length,
     )
@@ -172,12 +188,12 @@ def test_flaky_detection(
     assert re.search(
         r"""🐛 Flaky detection
 - Skipped 1 test:
-    • 'test_flaky_detection\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
+    • 'test_flaky_detection_for_new_tests\.py::test_quux_[a]+' has not been tested multiple times because the name of the test exceeds our limit of \d+ characters
 - Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
 - Active for 3 new tests:
-    • 'test_flaky_detection\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-    • 'test_flaky_detection\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
-    • 'test_flaky_detection\.py::test_corge' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
+    • 'test_flaky_detection_for_new_tests\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+    • 'test_flaky_detection_for_new_tests\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+    • 'test_flaky_detection_for_new_tests\.py::test_corge' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
         result.stdout.str(),
         re.MULTILINE,
     )
@@ -188,9 +204,9 @@ def test_flaky_detection(
     assert len(spans) == 1 + sum(result.parseoutcomes().values())
 
     new_tests = [
-        "test_flaky_detection.py::test_bar",
-        "test_flaky_detection.py::test_baz",
-        "test_flaky_detection.py::test_corge",
+        "test_flaky_detection_for_new_tests.py::test_bar",
+        "test_flaky_detection_for_new_tests.py::test_baz",
+        "test_flaky_detection_for_new_tests.py::test_corge",
     ]
     for span in spans.values():
         assert span is not None
@@ -198,6 +214,74 @@ def test_flaky_detection(
 
         is_new_test = span.name in new_tests
         assert span.attributes.get("cicd.test.new", False) == is_new_test
+
+
+@responses.activate
+def test_flaky_detection_for_unhealthy_tests(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    _set_test_environment(monkeypatch, mode=flaky_detection.FlakyDetectorMode.UNHEALTHY)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        unhealthy_test_names=[
+            "test_flaky_detection_for_unhealthy_tests.py::test_bar",
+            "test_flaky_detection_for_unhealthy_tests.py::test_baz",
+            "test_flaky_detection_for_unhealthy_tests.py::test_qux",
+            "test_flaky_detection_for_unhealthy_tests.py::test_quux",
+            "test_flaky_detection_for_unhealthy_tests.py::test_unknown",
+        ],
+    )
+
+    result, spans = pytester_with_spans(
+        code="""
+        import pytest
+
+        def test_foo():
+            assert True
+
+        execution_count = 0
+
+        def test_bar():
+            # Simulate a flaky test.
+            global execution_count
+            execution_count += 1
+
+            if execution_count == 1:
+                pytest.fail("I'm flaky!")
+
+        def test_baz():
+            assert True
+
+        def test_qux():
+            pytest.skip("I'm skipped!")
+
+        def test_quux():
+            assert True
+        """
+    )
+
+    result.assert_outcomes(
+        failed=1,  # Only the first execution of the flaky test.
+        passed=3003,  # The initial execution of the 4 tests and 1000 executions (minus 1 failed execution) for each unhealthy test.
+        skipped=1,  # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
+    )
+
+    assert re.search(
+        r"""🐛 Flaky detection
+- Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+- Active for 3 unhealthy tests:
+    • 'test_flaky_detection_for_unhealthy_tests\.py::test_bar' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+    • 'test_flaky_detection_for_unhealthy_tests\.py::test_baz' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+    • 'test_flaky_detection_for_unhealthy_tests\.py::test_quux' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
+        result.stdout.str(),
+        re.MULTILINE,
+    )
+
+    assert spans is not None
+
+    # 1 span for the session and one per test.
+    assert len(spans) == 1 + sum(result.parseoutcomes().values())
 
 
 @responses.activate
@@ -470,7 +554,7 @@ def test_flaky_detection_budget_deadline_stops_retries(
 
 
 @responses.activate
-def test_flaky_detector_filter_existing_tests_with_session(
+def test_flaky_detector_filter_context_tests_with_session(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
 ) -> None:
@@ -478,10 +562,14 @@ def test_flaky_detector_filter_existing_tests_with_session(
     _make_quarantine_mock()
     _make_flaky_detection_context_mock(
         existing_test_names=[
-            "test_flaky_detector_filter_existing_tests_with_session.py::test_foo",
-            "test_flaky_detector_filter_existing_tests_with_session.py::test_bar",
-            "test_flaky_detector_filter_existing_tests_with_session.py::test_baz",  # Unknown test, should be filtered.
-        ]
+            "test_flaky_detector_filter_context_tests_with_session.py::test_foo",
+            "test_flaky_detector_filter_context_tests_with_session.py::test_bar",
+            "test_flaky_detector_filter_context_tests_with_session.py::test_baz",  # Unknown test, should be filtered.
+        ],
+        unhealthy_test_names=[
+            "test_flaky_detector_filter_context_tests_with_session.py::test_foo",
+            "test_flaky_detector_filter_context_tests_with_session.py::test_qux",  # Unknown test, should be filtered.
+        ],
     )
 
     pytester.makepyfile(
@@ -503,6 +591,7 @@ def test_flaky_detector_filter_existing_tests_with_session(
 
     # Unknown test should have been filtered out after collection.
     assert len(plugin.mergify_ci.flaky_detector._context.existing_test_names) == 2
+    assert len(plugin.mergify_ci.flaky_detector._context.unhealthy_test_names) == 1
 
 
 def _get_span_counts(

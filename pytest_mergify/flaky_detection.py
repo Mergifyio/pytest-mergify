@@ -1,5 +1,6 @@
 import dataclasses
 import datetime
+import enum
 import os
 import typing
 
@@ -17,6 +18,7 @@ class _FlakyDetectionContext:
     budget_ratio: float
     existing_test_names: typing.List[str]
     existing_tests_mean_duration_ms: int
+    unhealthy_test_names: typing.List[str]
     max_test_execution_count: int
     max_test_name_length: int
     min_budget_duration_ms: int
@@ -32,8 +34,8 @@ class _FlakyDetectionContext:
 
 
 @dataclasses.dataclass
-class _NewTestMetrics:
-    "Represents metrics collected for a new test."
+class _TestMetrics:
+    "Represents metrics collected for a test."
 
     initial_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
@@ -63,17 +65,23 @@ class _NewTestMetrics:
         self.total_duration += duration
 
 
+class FlakyDetectorMode(enum.Enum):
+    NEW = "new"
+    UNHEALTHY = "unhealthy"
+
+
 @dataclasses.dataclass
 class FlakyDetector:
     token: str
     url: str
     full_repository_name: str
+    mode: FlakyDetectorMode
 
     _context: _FlakyDetectionContext = dataclasses.field(init=False)
     _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
         init=False, default=None
     )
-    _new_test_metrics: typing.Dict[str, _NewTestMetrics] = dataclasses.field(
+    _test_metrics: typing.Dict[str, _TestMetrics] = dataclasses.field(
         init=False, default_factory=dict
     )
     _over_length_tests: typing.Set[str] = dataclasses.field(
@@ -125,7 +133,7 @@ class FlakyDetector:
         response.raise_for_status()
 
         result = _FlakyDetectionContext(**response.json())
-        if len(result.existing_test_names) == 0:
+        if self.mode == FlakyDetectorMode.NEW and len(result.existing_test_names) == 0:
             raise RuntimeError(
                 f"No existing tests found for '{self.full_repository_name}' repository",
             )
@@ -140,31 +148,43 @@ class FlakyDetector:
             return False
 
         test = report.nodeid
-        if test in self._context.existing_test_names:
+
+        if (
+            self.mode == FlakyDetectorMode.NEW
+            and test in self._context.existing_test_names
+        ):
+            return False
+        elif (
+            self.mode == FlakyDetectorMode.UNHEALTHY
+            and test not in self._context.unhealthy_test_names
+        ):
             return False
 
         if len(test) > self._context.max_test_name_length:
             self._over_length_tests.add(test)
             return False
 
-        metrics = self._new_test_metrics.setdefault(report.nodeid, _NewTestMetrics())
+        metrics = self._test_metrics.setdefault(test, _TestMetrics())
         metrics.add_duration(datetime.timedelta(seconds=report.duration))
 
         return True
 
-    def filter_existing_tests_with_session(self, session: _pytest.main.Session) -> None:
+    def filter_context_tests_with_session(self, session: _pytest.main.Session) -> None:
         session_tests = {item.nodeid for item in session.items}
         self._context.existing_test_names = [
             test for test in self._context.existing_test_names if test in session_tests
         ]
+        self._context.unhealthy_test_names = [
+            test for test in self._context.unhealthy_test_names if test in session_tests
+        ]
 
-    def get_retry_count_for_new_test(self, test: str) -> int:
-        metrics = self._new_test_metrics.get(test)
+    def get_retry_count_for_test(self, test: str) -> int:
+        metrics = self._test_metrics.get(test)
         if not metrics:
             return 0
 
         budget_per_test = (
-            self._get_duration_before_deadline() / self._count_remaining_new_tests()
+            self._get_duration_before_deadline() / self._count_remaining_tests()
         )
         result = int(budget_per_test / metrics.initial_duration)
         result = min(result, self._context.max_test_execution_count)
@@ -198,14 +218,14 @@ class FlakyDetector:
                     f"exceeds our limit of {self._context.max_test_name_length} characters"
                 )
 
-        if not self._new_test_metrics:
-            result += f"{os.linesep}- No new tests detected, but we are watching 👀"
+        if not self._test_metrics:
+            result += f"{os.linesep}- No {self.mode.value.lower()} tests detected, but we are watching 👀"
 
             return result
 
         total_retry_duration_seconds = sum(
             metrics.total_duration.total_seconds()
-            for metrics in self._new_test_metrics.values()
+            for metrics in self._test_metrics.values()
         )
         budget_duration_seconds = self._get_budget_duration().total_seconds()
         result += (
@@ -214,10 +234,10 @@ class FlakyDetector:
         )
 
         result += (
-            f"{os.linesep}- Active for {len(self._new_test_metrics)} new "
-            f"test{'s' if len(self._new_test_metrics) > 1 else ''}:"
+            f"{os.linesep}- Active for {len(self._test_metrics)} {self.mode.value.lower()} "
+            f"test{'s' if len(self._test_metrics) > 1 else ''}:"
         )
-        for test, metrics in self._new_test_metrics.items():
+        for test, metrics in self._test_metrics.items():
             if metrics.scheduled_retry_count == 0:
                 result += (
                     f"{os.linesep}    • '{test}' is too slow to be tested at least "
@@ -250,10 +270,10 @@ class FlakyDetector:
             + self._get_budget_duration()
         )
 
-    def is_last_retry_for_new_test(self, test: str) -> bool:
-        "Returns true if the given test is a new test and this is its last retry."
+    def is_last_retry_for_test(self, test: str) -> bool:
+        "Returns true if the given test exists and this is its last retry."
 
-        metrics = self._new_test_metrics.get(test)
+        metrics = self._test_metrics.get(test)
         if not metrics:
             return False
 
@@ -293,9 +313,9 @@ class FlakyDetector:
         item.session._setupstate.stack.update(self._suspended_item_finalizers)
         self._suspended_item_finalizers.clear()
 
-    def _count_remaining_new_tests(self) -> int:
+    def _count_remaining_tests(self) -> int:
         return sum(
-            1 for metrics in self._new_test_metrics.values() if not metrics.is_processed
+            1 for metrics in self._test_metrics.values() if not metrics.is_processed
         )
 
     def _get_budget_duration(self) -> datetime.timedelta:

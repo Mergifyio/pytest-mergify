@@ -17,7 +17,7 @@ import pytest
 from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-from pytest_mergify import utils
+from pytest_mergify import flaky_detection, utils
 from pytest_mergify.ci_insights import MergifyCIInsights
 
 
@@ -141,7 +141,7 @@ Common issues:
 
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_existing_tests_with_session(session)
+            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
@@ -216,7 +216,7 @@ Common issues:
             return True
 
         for _ in range(
-            self.mergify_ci.flaky_detector.get_retry_count_for_new_test(item.nodeid)
+            self.mergify_ci.flaky_detector.get_retry_count_for_test(item.nodeid)
         ):
             with self.tracer.start_as_current_span(
                 item.nodeid, attributes=attributes, context=context
@@ -240,7 +240,7 @@ Common issues:
         # retries and restore higher-scoped finalizers only on the last retry.
         if (
             self.mergify_ci.flaky_detector.is_deadline_exceeded()
-            or self.mergify_ci.flaky_detector.is_last_retry_for_new_test(item.nodeid)
+            or self.mergify_ci.flaky_detector.is_last_retry_for_test(item.nodeid)
         ):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)
         else:
@@ -302,7 +302,11 @@ Common issues:
 
         if self.mergify_ci.flaky_detector:
             detected = self.mergify_ci.flaky_detector.detect_from_report(report)
-            if detected:
+            if (
+                detected
+                and self.mergify_ci.flaky_detector.mode
+                == flaky_detection.FlakyDetectorMode.NEW
+            ):
                 test_span.set_attributes({"cicd.test.new": True})
 
 
