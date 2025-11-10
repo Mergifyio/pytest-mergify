@@ -223,7 +223,7 @@ Common issues:
             ):
                 _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
 
-            if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+            if self.mergify_ci.flaky_detector.is_deadline_exceeded_for_new_tests():
                 return True
 
         return True
@@ -239,7 +239,7 @@ Common issues:
         # The goal here is to keep only function-scoped finalizers during
         # retries and restore higher-scoped finalizers only on the last retry.
         if (
-            self.mergify_ci.flaky_detector.is_deadline_exceeded()
+            self.mergify_ci.flaky_detector.is_deadline_exceeded_for_new_tests()
             or self.mergify_ci.flaky_detector.is_last_retry_for_new_test(item.nodeid)
         ):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)
@@ -301,7 +301,9 @@ Common issues:
         )
 
         if self.mergify_ci.flaky_detector:
-            detected = self.mergify_ci.flaky_detector.detect_from_report(report)
+            detected = self.mergify_ci.flaky_detector.detect_new_test_from_report(
+                report
+            )
             if detected:
                 test_span.set_attributes({"cicd.test.new": True})
 

@@ -49,9 +49,11 @@ def _make_flaky_detection_context(
 @freezegun.freeze_time(_NOW)
 def test_flaky_detector_get_duration_before_deadline() -> None:
     detector = InitializedFlakyDetector()
-    detector._deadline = _NOW + datetime.timedelta(seconds=10)
+    detector._new_tests_deadline = _NOW + datetime.timedelta(seconds=10)
 
-    assert detector._get_duration_before_deadline() == datetime.timedelta(seconds=10)
+    assert detector._get_duration_before_new_tests_deadline() == datetime.timedelta(
+        seconds=10
+    )
 
 
 def test_flaky_detector_count_remaining_new_tests() -> None:

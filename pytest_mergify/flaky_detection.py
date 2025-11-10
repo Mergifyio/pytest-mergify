@@ -70,7 +70,7 @@ class FlakyDetector:
     full_repository_name: str
 
     _context: _FlakyDetectionContext = dataclasses.field(init=False)
-    _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
+    _new_tests_deadline: typing.Optional[datetime.datetime] = dataclasses.field(
         init=False, default=None
     )
     _new_test_metrics: typing.Dict[str, _NewTestMetrics] = dataclasses.field(
@@ -132,7 +132,7 @@ class FlakyDetector:
 
         return result
 
-    def detect_from_report(self, report: _pytest.reports.TestReport) -> bool:
+    def detect_new_test_from_report(self, report: _pytest.reports.TestReport) -> bool:
         if report.when != "call":
             return False
 
@@ -164,7 +164,8 @@ class FlakyDetector:
             return 0
 
         budget_per_test = (
-            self._get_duration_before_deadline() / self._count_remaining_new_tests()
+            self._get_duration_before_new_tests_deadline()
+            / self._count_remaining_new_tests()
         )
         result = int(budget_per_test / metrics.initial_duration)
         result = min(result, self._context.max_test_execution_count)
@@ -179,10 +180,10 @@ class FlakyDetector:
 
         return result
 
-    def is_deadline_exceeded(self) -> bool:
+    def is_deadline_exceeded_for_new_tests(self) -> bool:
         return (
-            self._deadline is not None
-            and datetime.datetime.now(datetime.timezone.utc) >= self._deadline
+            self._new_tests_deadline is not None
+            and datetime.datetime.now(datetime.timezone.utc) >= self._new_tests_deadline
         )
 
     def make_report(self) -> str:
@@ -198,6 +199,13 @@ class FlakyDetector:
                     f"exceeds our limit of {self._context.max_test_name_length} characters"
                 )
 
+        result += self._make_new_tests_report()
+
+        return result
+
+    def _make_new_tests_report(self) -> str:
+        result = ""
+
         if not self._new_test_metrics:
             result += f"{os.linesep}- No new tests detected, but we are watching 👀"
 
@@ -207,7 +215,9 @@ class FlakyDetector:
             metrics.total_duration.total_seconds()
             for metrics in self._new_test_metrics.values()
         )
-        budget_duration_seconds = self._get_budget_duration().total_seconds()
+        budget_duration_seconds = (
+            self._get_budget_duration_for_new_tests().total_seconds()
+        )
         result += (
             f"{os.linesep}- Used {total_retry_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
             f"({total_retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
@@ -244,10 +254,10 @@ class FlakyDetector:
         return result
 
     def set_deadline(self) -> None:
-        self._deadline = (
+        self._new_tests_deadline = (
             datetime.datetime.now(datetime.timezone.utc)
             + self._context.existing_tests_mean_duration
-            + self._get_budget_duration()
+            + self._get_budget_duration_for_new_tests()
         )
 
     def is_last_retry_for_new_test(self, test: str) -> bool:
@@ -298,7 +308,7 @@ class FlakyDetector:
             1 for metrics in self._new_test_metrics.values() if not metrics.is_processed
         )
 
-    def _get_budget_duration(self) -> datetime.timedelta:
+    def _get_budget_duration_for_new_tests(self) -> datetime.timedelta:
         total_duration = self._context.existing_tests_mean_duration * len(
             self._context.existing_test_names
         )
@@ -309,11 +319,11 @@ class FlakyDetector:
             self._context.min_budget_duration,
         )
 
-    def _get_duration_before_deadline(self) -> datetime.timedelta:
-        if not self._deadline:
+    def _get_duration_before_new_tests_deadline(self) -> datetime.timedelta:
+        if not self._new_tests_deadline:
             return datetime.timedelta()
 
         return max(
-            self._deadline - datetime.datetime.now(datetime.timezone.utc),
+            self._new_tests_deadline - datetime.datetime.now(datetime.timezone.utc),
             datetime.timedelta(),
         )
