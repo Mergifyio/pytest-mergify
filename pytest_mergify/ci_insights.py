@@ -3,9 +3,7 @@ import os
 import random
 import typing
 
-import _pytest.main
 import _pytest.nodes
-import _pytest.terminal
 import opentelemetry.sdk.resources
 import requests
 from opentelemetry.exporter.otlp.proto.http import Compression
@@ -176,7 +174,6 @@ class MergifyCIInsights:
         if (
             self.token is None
             or self.repo_name is None
-            or self.branch_name is None
             # NOTE(remyduthu): Hide behind a feature flag for now.
             or not utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
         ):
