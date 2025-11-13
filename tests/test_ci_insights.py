@@ -213,7 +213,11 @@ def test_flaky_detection_for_new_tests(
         assert span.attributes is not None
 
         is_new_test = span.name in new_tests
-        assert span.attributes.get("cicd.test.new", False) == is_new_test
+        if not is_new_test:
+            continue
+
+        assert span.attributes.get("cicd.test.flaky_detection", False)
+        assert span.attributes.get("cicd.test.new", False)
 
 
 @responses.activate
@@ -282,6 +286,22 @@ def test_flaky_detection_for_unhealthy_tests(
 
     # 1 span for the session and one per test, including 1000 retries for each unhealthy test.
     assert len(spans) == 1 + 3005
+
+    unhealthy_tests = [
+        "test_flaky_detection_for_unhealthy_tests.py::test_bar",
+        "test_flaky_detection_for_unhealthy_tests.py::test_baz",
+        "test_flaky_detection_for_unhealthy_tests.py::test_quux",
+    ]
+    for span in spans.values():
+        assert span is not None
+        assert span.attributes is not None
+
+        is_unhealthy_test = span.name in unhealthy_tests
+        if not is_unhealthy_test:
+            continue
+
+        assert span.attributes.get("cicd.test.flaky_detection", False)
+        assert not span.attributes.get("cicd.test.new", False)
 
 
 @responses.activate
