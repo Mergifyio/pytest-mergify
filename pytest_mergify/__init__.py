@@ -206,7 +206,7 @@ Common issues:
         context = opentelemetry.trace.set_span_in_context(self.session_span)
 
         # Execute the initial protocol to register its duration, which lets us
-        # calculate the number of retries.
+        # calculate the number of reruns.
         with self.tracer.start_as_current_span(
             item.nodeid, attributes=attributes, context=context
         ):
@@ -216,7 +216,7 @@ Common issues:
             return True
 
         for _ in range(
-            self.mergify_ci.flaky_detector.get_retry_count_for_test(item.nodeid)
+            self.mergify_ci.flaky_detector.get_rerun_count_for_test(item.nodeid)
         ):
             with self.tracer.start_as_current_span(
                 item.nodeid, attributes=attributes, context=context
@@ -262,10 +262,10 @@ Common issues:
             return
 
         # The goal here is to keep only function-scoped finalizers during
-        # retries and restore higher-scoped finalizers only on the last retry.
+        # reruns and restore higher-scoped finalizers only on the last one.
         if (
             self.mergify_ci.flaky_detector.is_deadline_exceeded()
-            or self.mergify_ci.flaky_detector.is_last_retry_for_test(item.nodeid)
+            or self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid)
         ):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)
         else:

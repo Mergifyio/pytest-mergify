@@ -43,25 +43,25 @@ class _TestMetrics:
     "Represents the duration of the initial execution of the test."
 
     # NOTE(remyduthu): We need this flag because we may have processed a test
-    # without scheduling retries for it (e.g., because it was too slow).
+    # without scheduling reruns for it (e.g., because it was too slow).
     is_processed: bool = dataclasses.field(default=False)
 
-    retry_count: int = dataclasses.field(default=0)
-    "Represents the number of times the test has been retried so far."
+    rerun_count: int = dataclasses.field(default=0)
+    "Represents the number of times the test has been rerun so far."
 
-    scheduled_retry_count: int = dataclasses.field(default=0)
-    "Represents the number of retries that have been scheduled for this test depending on the budget."
+    scheduled_rerun_count: int = dataclasses.field(default=0)
+    "Represents the number of reruns that have been scheduled for this test depending on the budget."
 
     total_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
     )
-    "Represents the total duration spent executing this test, including retries."
+    "Represents the total duration spent executing this test, including reruns."
 
     def add_duration(self, duration: datetime.timedelta) -> None:
         if not self.initial_duration:
             self.initial_duration = duration
 
-        self.retry_count += 1
+        self.rerun_count += 1
         self.total_duration += duration
 
 
@@ -102,10 +102,10 @@ class FlakyDetector:
             <session>: [(finalizer_fn, ...), exception_info]        # Session scope.
         }
 
-    When retrying a test, we want to:
+    When rerunning a test, we want to:
 
-    - Tear down and re-setup function-scoped fixtures for each retry.
-    - Keep higher-scoped fixtures alive across all retries.
+    - Tear down and re-setup function-scoped fixtures for each rerun.
+    - Keep higher-scoped fixtures alive across all reruns.
 
     This approach is inspired by pytest-rerunfailures:
     https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L503-L542
@@ -169,7 +169,7 @@ class FlakyDetector:
             test for test in self._context.unhealthy_test_names if test in session_tests
         ]
 
-    def get_retry_count_for_test(self, test: str) -> int:
+    def get_rerun_count_for_test(self, test: str) -> int:
         metrics = self._test_metrics.get(test)
         if not metrics:
             return 0
@@ -186,7 +186,7 @@ class FlakyDetector:
         if result < self._context.min_test_execution_count:
             return 0
 
-        metrics.scheduled_retry_count = result
+        metrics.scheduled_rerun_count = result
 
         return result
 
@@ -216,14 +216,14 @@ class FlakyDetector:
 
             return result
 
-        total_retry_duration_seconds = sum(
+        total_rerun_duration_seconds = sum(
             metrics.total_duration.total_seconds()
             for metrics in self._test_metrics.values()
         )
         budget_duration_seconds = self._get_budget_duration().total_seconds()
         result += (
-            f"{os.linesep}- Used {total_retry_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
-            f"({total_retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+            f"{os.linesep}- Used {total_rerun_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
+            f"({total_rerun_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
         )
 
         result += (
@@ -231,27 +231,27 @@ class FlakyDetector:
             f"test{'s' if len(self._test_metrics) > 1 else ''}:"
         )
         for test, metrics in self._test_metrics.items():
-            if metrics.scheduled_retry_count == 0:
+            if metrics.scheduled_rerun_count == 0:
                 result += (
                     f"{os.linesep}    • '{test}' is too slow to be tested at least "
                     f"{self._context.min_test_execution_count} times within the budget"
                 )
                 continue
 
-            if metrics.retry_count < metrics.scheduled_retry_count:
+            if metrics.rerun_count < metrics.scheduled_rerun_count:
                 result += (
-                    f"{os.linesep}    • '{test}' has been tested only {metrics.retry_count} "
-                    f"time{'s' if metrics.retry_count > 1 else ''} instead of {metrics.scheduled_retry_count} "
-                    f"time{'s' if metrics.scheduled_retry_count > 1 else ''} to avoid exceeding the budget"
+                    f"{os.linesep}    • '{test}' has been tested only {metrics.rerun_count} "
+                    f"time{'s' if metrics.rerun_count > 1 else ''} instead of {metrics.scheduled_rerun_count} "
+                    f"time{'s' if metrics.scheduled_rerun_count > 1 else ''} to avoid exceeding the budget"
                 )
                 continue
 
-            retry_duration_seconds = metrics.total_duration.total_seconds()
+            rerun_duration_seconds = metrics.total_duration.total_seconds()
             result += (
-                f"{os.linesep}    • '{test}' has been tested {metrics.retry_count} "
-                f"time{'s' if metrics.retry_count > 1 else ''} using approx. "
-                f"{retry_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
-                f"({retry_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+                f"{os.linesep}    • '{test}' has been tested {metrics.rerun_count} "
+                f"time{'s' if metrics.rerun_count > 1 else ''} using approx. "
+                f"{rerun_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
+                f"({rerun_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
             )
 
         return result
@@ -263,17 +263,17 @@ class FlakyDetector:
             + self._get_budget_duration()
         )
 
-    def is_last_retry_for_test(self, test: str) -> bool:
-        "Returns true if the given test exists and this is its last retry."
+    def is_last_rerun_for_test(self, test: str) -> bool:
+        "Returns true if the given test exists and this is its last rerun."
 
         metrics = self._test_metrics.get(test)
         if not metrics:
             return False
 
         return (
-            metrics.scheduled_retry_count != 0
-            and metrics.scheduled_retry_count + 1  # Add the initial execution.
-            == metrics.retry_count
+            metrics.scheduled_rerun_count != 0
+            and metrics.scheduled_rerun_count + 1  # Add the initial execution.
+            == metrics.rerun_count
         )
 
     def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:

@@ -284,7 +284,7 @@ def test_flaky_detection_for_unhealthy_tests(
 
     assert spans is not None
 
-    # 1 span for the session and one per test, including 1000 retries for each unhealthy test.
+    # 1 span for the session and one per test, including 1000 reruns for each unhealthy test.
     assert len(spans) == 1 + 3005
 
     unhealthy_tests = [
@@ -356,11 +356,11 @@ def test_flaky_detection_with_fixtures(
 
         def test_last():
             # This test validates that fixtures are properly set up and torn down
-            # during test retries. With 3 tests total (test_first, test_second, test_last)
-            # where test_second is new and gets retried 1000 times:
-            # - SETUP_COUNT should be 1003 (1 initial run per test + 1000 retries of test_second)
+            # during test reruns. With 3 tests total (test_first, test_second, test_last)
+            # where test_second is new and gets reran 1000 times:
+            # - SETUP_COUNT should be 1003 (1 initial run per test + 1000 reruns of test_second)
             # - TEARDOWN_COUNT should be 1002 (all tests complete except test_last which is currently running)
-            # This ensures that function-scoped fixtures execute fresh for each retry,
+            # This ensures that function-scoped fixtures execute fresh for each rerun,
             # while session-scoped fixtures run only once (validated by SESSION_ALREADY_SET).
             global SETUP_COUNT, TEARDOWN_COUNT
             assert SETUP_COUNT == 1003
@@ -449,16 +449,16 @@ def test_flaky_detection_clones_items(
 
 
 @responses.activate
-def test_flaky_detection_slow_test_not_retried(
+def test_flaky_detection_slow_test_not_reran(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
 ) -> None:
-    "Test that a slow test is not retried when it can't reach 5 within the budget."
+    "Test that a slow test is not reran when it can't reach 5 within the budget."
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
     _make_flaky_detection_context_mock(
         existing_test_names=[
-            "test_flaky_detection_slow_test_not_retried.py::test_existing",
+            "test_flaky_detection_slow_test_not_reran.py::test_existing",
         ],
         min_test_execution_count=5,
     )
@@ -497,29 +497,29 @@ def test_flaky_detection_slow_test_not_retried(
 
     # `test_fast` should have been tested successfully.
     assert re.search(
-        r"'test_flaky_detection_slow_test_not_retried\.py::test_fast' has been tested \d+ times",
+        r"'test_flaky_detection_slow_test_not_reran\.py::test_fast' has been tested \d+ times",
         result.stdout.str(),
     )
 
     assert (
-        "'test_flaky_detection_slow_test_not_retried.py::test_slow' is too slow to be tested at least 5 times within the budget"
+        "'test_flaky_detection_slow_test_not_reran.py::test_slow' is too slow to be tested at least 5 times within the budget"
         in result.stdout.str()
     )
 
 
 @responses.activate
-def test_flaky_detection_budget_deadline_stops_retries(
+def test_flaky_detection_budget_deadline_stops_reruns(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
 ) -> None:
     """
-    Test that retries are stopped when they would exceed the budget deadline.
+    Test that reruns are stopped when they would exceed the budget deadline.
     """
     _set_test_environment(monkeypatch)
     _make_quarantine_mock()
     _make_flaky_detection_context_mock(
         existing_test_names=[
-            "test_flaky_detection_budget_deadline_stops_retries.py::test_existing",
+            "test_flaky_detection_budget_deadline_stops_reruns.py::test_existing",
         ]
     )
 
@@ -564,11 +564,11 @@ def test_flaky_detection_budget_deadline_stops_retries(
     # We should have:
     # - 1 execution of `test_existing`,
     # - 1 initial execution of `test_new`,
-    # - Only 8 retries of `test_new` before the deadline is reached.
+    # - Only 8 reruns of `test_new` before the deadline is reached.
     result.assert_outcomes(passed=10)
 
     assert re.search(
-        r"'test_flaky_detection_budget_deadline_stops_retries\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",
+        r"'test_flaky_detection_budget_deadline_stops_reruns\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",
         result.stdout.str(),
     )
 
