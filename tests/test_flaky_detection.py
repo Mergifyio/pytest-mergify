@@ -21,24 +21,29 @@ class InitializedFlakyDetector(flaky_detection.FlakyDetector):
         self.token = ""
         self.url = ""
         self.full_repository_name = ""
+        self.mode = "new"
 
     def __post_init__(self) -> None:
         pass
 
 
 def _make_flaky_detection_context(
-    budget_ratio: float = 0,
+    budget_ratio_for_new_tests: float = 0,
+    budget_ratio_for_unhealthy_tests: float = 0,
     existing_test_names: typing.List[str] = [],
     existing_tests_mean_duration_ms: int = 0,
+    unhealthy_test_names: typing.List[str] = [],
     max_test_execution_count: int = 0,
     max_test_name_length: int = 0,
     min_budget_duration_ms: int = 0,
     min_test_execution_count: int = 0,
 ) -> flaky_detection._FlakyDetectionContext:
     return flaky_detection._FlakyDetectionContext(
-        budget_ratio=budget_ratio,
+        budget_ratio_for_new_tests=budget_ratio_for_new_tests,
+        budget_ratio_for_unhealthy_tests=budget_ratio_for_unhealthy_tests,
         existing_test_names=existing_test_names,
         existing_tests_mean_duration_ms=existing_tests_mean_duration_ms,
+        unhealthy_test_names=unhealthy_test_names,
         max_test_execution_count=max_test_execution_count,
         max_test_name_length=max_test_name_length,
         min_budget_duration_ms=min_budget_duration_ms,
@@ -56,12 +61,12 @@ def test_flaky_detector_get_duration_before_deadline() -> None:
 
 def test_flaky_detector_count_remaining_new_tests() -> None:
     detector = InitializedFlakyDetector()
-    detector._new_test_metrics = {
-        "foo": flaky_detection._NewTestMetrics(is_processed=True),
-        "bar": flaky_detection._NewTestMetrics(),
-        "baz": flaky_detection._NewTestMetrics(),
+    detector._test_metrics = {
+        "foo": flaky_detection._TestMetrics(is_processed=True),
+        "bar": flaky_detection._TestMetrics(),
+        "baz": flaky_detection._TestMetrics(),
     }
-    assert detector._count_remaining_new_tests() == 2
+    assert detector._count_remaining_tests() == 2
 
 
 @freezegun.freeze_time(_NOW)
@@ -72,19 +77,19 @@ def test_flaky_detector_get_retry_count_for_new_tests() -> None:
         min_budget_duration_ms=4000,
         max_test_execution_count=1000,
     )
-    detector._new_test_metrics = {
-        "foo": flaky_detection._NewTestMetrics(
+    detector._test_metrics = {
+        "foo": flaky_detection._TestMetrics(
             initial_duration=datetime.timedelta(milliseconds=10),
             is_processed=True,
         ),
-        "bar": flaky_detection._NewTestMetrics(
+        "bar": flaky_detection._TestMetrics(
             initial_duration=datetime.timedelta(milliseconds=100),
         ),
-        "baz": flaky_detection._NewTestMetrics(),
+        "baz": flaky_detection._TestMetrics(),
     }
     detector.set_deadline()
 
-    assert detector.get_retry_count_for_new_test("bar") == 20
+    assert detector.get_retry_count_for_test("bar") == 20
 
 
 @freezegun.freeze_time(_NOW)
@@ -95,21 +100,21 @@ def test_flaky_detector_get_retry_count_for_new_tests_with_slow_test() -> None:
         min_budget_duration_ms=500,
         max_test_execution_count=1000,
     )
-    detector._new_test_metrics = {
-        "foo": flaky_detection._NewTestMetrics(
+    detector._test_metrics = {
+        "foo": flaky_detection._TestMetrics(
             # Can't be retried 5 times within the budget.
             initial_duration=datetime.timedelta(seconds=1),
         ),
-        "bar": flaky_detection._NewTestMetrics(
+        "bar": flaky_detection._TestMetrics(
             # This test should not be impacted by the previous one.
             initial_duration=datetime.timedelta(milliseconds=1),
         ),
     }
     detector.set_deadline()
 
-    assert detector.get_retry_count_for_new_test("foo") == 0
+    assert detector.get_retry_count_for_test("foo") == 0
 
-    assert detector.get_retry_count_for_new_test("bar") == 500
+    assert detector.get_retry_count_for_test("bar") == 500
 
 
 @freezegun.freeze_time(_NOW)
@@ -120,12 +125,12 @@ def test_flaky_detector_get_retry_count_for_new_tests_with_fast_test() -> None:
         min_budget_duration_ms=4000,
         max_test_execution_count=1000,
     )
-    detector._new_test_metrics = {
-        "foo": flaky_detection._NewTestMetrics(
+    detector._test_metrics = {
+        "foo": flaky_detection._TestMetrics(
             # Should only be retried 1000 times, freeing the rest of the budget for other tests.
             initial_duration=datetime.timedelta(milliseconds=1),
         ),
     }
     detector.set_deadline()
 
-    assert detector.get_retry_count_for_new_test("foo") == 1000
+    assert detector.get_retry_count_for_test("foo") == 1000
