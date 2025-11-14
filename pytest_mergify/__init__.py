@@ -325,10 +325,16 @@ Common issues:
             }
         )
 
-        if self.mergify_ci.flaky_detector:
-            detected = self.mergify_ci.flaky_detector.detect_from_report(report)
-            if detected and self.mergify_ci.flaky_detector.mode == "new":
-                test_span.set_attributes({"cicd.test.new": True})
+        if not self.mergify_ci.flaky_detector:
+            return
+
+        detected = self.mergify_ci.flaky_detector.detect_from_report(report)
+        if not detected:
+            return
+
+        test_span.set_attributes({"cicd.test.flaky_detection": True})
+        if self.mergify_ci.flaky_detector.mode == "new":
+            test_span.set_attributes({"cicd.test.new": True})
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
