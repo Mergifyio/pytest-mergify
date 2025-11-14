@@ -3,8 +3,7 @@ import pytest
 from _pytest.pytester import Pytester
 
 import pytest_mergify
-
-from . import conftest
+from tests import conftest
 
 
 def test_plugin_is_loaded(pytestconfig: _pytest.config.Config) -> None:
