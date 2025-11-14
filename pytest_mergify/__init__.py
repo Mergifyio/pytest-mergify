@@ -141,7 +141,7 @@ Common issues:
 
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_existing_tests_with_session(session)
+            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
@@ -216,17 +216,42 @@ Common issues:
             return True
 
         for _ in range(
-            self.mergify_ci.flaky_detector.get_retry_count_for_new_test(item.nodeid)
+            self.mergify_ci.flaky_detector.get_retry_count_for_test(item.nodeid)
         ):
             with self.tracer.start_as_current_span(
                 item.nodeid, attributes=attributes, context=context
             ):
-                _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
+                self._reruntestprotocol(item, nextitem)
 
             if self.mergify_ci.flaky_detector.is_deadline_exceeded():
                 return True
 
         return True
+
+    def _reruntestprotocol(
+        self, item: _pytest.nodes.Item, nextitem: typing.Optional[_pytest.nodes.Item]
+    ) -> None:
+        """
+        Run the protocol for a rerun of a given test.
+
+        In `new` mode, we log rerun failures to pytest's report to enforce a
+        quality gate and prevent merging PRs with new flaky tests. In other
+        modes (`unhealthy`), we skip logging to avoid blocking CI, but still
+        capture reruns in spans.
+        """
+
+        if not self.mergify_ci.flaky_detector:
+            return
+
+        if self.mergify_ci.flaky_detector.mode == "new":
+            _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
+            return
+
+        reports = _pytest.runner.runtestprotocol(
+            item=item, nextitem=nextitem, log=False
+        )
+        for report in reports:
+            self.pytest_runtest_logreport(report)
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_teardown(
@@ -240,7 +265,7 @@ Common issues:
         # retries and restore higher-scoped finalizers only on the last retry.
         if (
             self.mergify_ci.flaky_detector.is_deadline_exceeded()
-            or self.mergify_ci.flaky_detector.is_last_retry_for_new_test(item.nodeid)
+            or self.mergify_ci.flaky_detector.is_last_retry_for_test(item.nodeid)
         ):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)
         else:
@@ -302,7 +327,7 @@ Common issues:
 
         if self.mergify_ci.flaky_detector:
             detected = self.mergify_ci.flaky_detector.detect_from_report(report)
-            if detected:
+            if detected and self.mergify_ci.flaky_detector.mode == "new":
                 test_span.set_attributes({"cicd.test.new": True})
 
 

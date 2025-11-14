@@ -184,6 +184,11 @@ class MergifyCIInsights:
                 token=self.token,
                 url=self.api_url,
                 full_repository_name=self.repo_name,
+                # NOTE(remyduthu): Choose the mode based on the presence of a PR
+                # context. If we can derive a `branch_name`, we target `new`
+                # tests. If not (e.g. scheduled runs), we fall back to
+                # `unhealthy` mode to focus on known problematic tests.
+                mode="new" if self.branch_name else "unhealthy",
             )
         except Exception as exception:
             self.flaky_detector_error_message = (
