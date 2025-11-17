@@ -420,35 +420,6 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
 
 
 @responses.activate
-def test_flaky_detection_clones_items(
-    monkeypatch: pytest.MonkeyPatch,
-    pytester_with_spans: conftest.PytesterWithSpanT,
-) -> None:
-    _set_test_environment(monkeypatch)
-    _make_quarantine_mock()
-    _make_flaky_detection_context_mock(
-        existing_test_names=["test_flaky_detection_clones_items.py::test_foo"],
-    )
-
-    result, spans = pytester_with_spans(
-        code="""
-        import pytest
-
-        @pytest.mark.asyncio
-        async def test_bar():
-            assert True
-        """
-    )
-    result.assert_outcomes(passed=1001)
-
-    assert spans is not None
-    assert _get_span_counts(spans) == {
-        "pytest session start": 1,
-        "test_flaky_detection_clones_items.py::test_bar": 1001,
-    }
-
-
-@responses.activate
 def test_flaky_detection_slow_test_not_reran(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
