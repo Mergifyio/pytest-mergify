@@ -21,6 +21,17 @@ from pytest_mergify import utils
 from pytest_mergify.ci_insights import MergifyCIInsights
 
 
+def _remove_setup_state_from_session(item: _pytest.nodes.Item) -> None:
+    """
+    Remove the item's setup state to force pytest to re-evaluate fixtures. This
+    is necessary to properly reset test state between reruns.
+
+    Reference:
+    https://github.com/pytest-dev/pytest-rerunfailures/blob/a484d569b55875c827f091c5f17b9087ab9169d9/src/pytest_rerunfailures.py#L249-L257
+    """
+    item.session._setupstate.stack = {}
+
+
 class PytestMergify:
     mergify_ci: MergifyCIInsights
 
@@ -218,6 +229,8 @@ Common issues:
         for _ in range(
             self.mergify_ci.flaky_detector.get_rerun_count_for_test(item.nodeid)
         ):
+            _remove_setup_state_from_session(item)
+
             with self.tracer.start_as_current_span(
                 item.nodeid, attributes=attributes, context=context
             ):
