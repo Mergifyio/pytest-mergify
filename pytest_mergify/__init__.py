@@ -261,6 +261,9 @@ Common issues:
         if not self.mergify_ci.flaky_detector:
             return
 
+        if not self.mergify_ci.flaky_detector.is_test_tracked(item.nodeid):
+            return
+
         # The goal here is to keep only function-scoped finalizers during
         # reruns and restore higher-scoped finalizers only on the last one.
         if (
