@@ -321,6 +321,36 @@ def test_flaky_detection_with_fixtures(
         max_test_name_length=max_test_name_length,
     )
 
+    suspended_calls, restored_calls = [], []
+
+    from pytest_mergify import flaky_detection
+
+    original_suspend = flaky_detection.FlakyDetector.suspend_item_finalizers
+    original_restore = flaky_detection.FlakyDetector.restore_item_finalizers
+
+    def tracked_suspend_item_finalizers(
+        self: flaky_detection.FlakyDetector, item: _pytest.nodes.Item
+    ) -> None:
+        suspended_calls.append(item.nodeid)
+        return original_suspend(self, item)
+
+    def tracked_restore_item_finalizers(
+        self: flaky_detection.FlakyDetector, item: _pytest.nodes.Item
+    ) -> None:
+        restored_calls.append(item.nodeid)
+        return original_restore(self, item)
+
+    monkeypatch.setattr(
+        flaky_detection.FlakyDetector,
+        "suspend_item_finalizers",
+        tracked_suspend_item_finalizers,
+    )
+    monkeypatch.setattr(
+        flaky_detection.FlakyDetector,
+        "restore_item_finalizers",
+        tracked_restore_item_finalizers,
+    )
+
     result, spans = pytester_with_spans(
         code="""
         import pytest
@@ -371,6 +401,15 @@ def test_flaky_detection_with_fixtures(
     result.assert_outcomes(
         passed=1003,  # The initial execution of the 3 tests and 1000 executions for the new test.
     )
+
+    # We should only suspend and restore finalized for the tracked test.
+    assert len(suspended_calls) == 1000
+    assert all(
+        call == "test_flaky_detection_with_fixtures.py::test_second"
+        for call in suspended_calls
+    )
+    assert len(restored_calls) == 1
+    assert restored_calls[0] == "test_flaky_detection_with_fixtures.py::test_second"
 
 
 @responses.activate

@@ -169,6 +169,9 @@ class FlakyDetector:
             test for test in self._context.unhealthy_test_names if test in session_tests
         ]
 
+    def is_test_tracked(self, test: str) -> bool:
+        return test in self._test_metrics
+
     def get_rerun_count_for_test(self, test: str) -> int:
         metrics = self._test_metrics.get(test)
         if not metrics:
