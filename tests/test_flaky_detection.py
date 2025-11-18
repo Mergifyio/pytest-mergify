@@ -1,6 +1,8 @@
 import datetime
 import typing
 
+import _pytest
+import _pytest.reports
 import freezegun
 
 from pytest_mergify import flaky_detection
@@ -22,6 +24,7 @@ class InitializedFlakyDetector(flaky_detection.FlakyDetector):
         self.url = ""
         self.full_repository_name = ""
         self.mode = "new"
+        self._test_metrics = {}
 
     def __post_init__(self) -> None:
         pass
@@ -59,6 +62,38 @@ def test_flaky_detector_get_duration_before_deadline() -> None:
     assert detector._get_duration_before_deadline() == datetime.timedelta(seconds=10)
 
 
+def test_flaky_detector_detect_from_report() -> None:
+    def make_report(
+        nodeid: str, when: typing.Literal["setup", "call", "teardown"], duration: float
+    ) -> _pytest.reports.TestReport:
+        return _pytest.reports.TestReport(
+            duration=duration,
+            keywords={},
+            location=("", None, ""),
+            longrepr=None,
+            nodeid=nodeid,
+            outcome="passed",
+            when=when,
+        )
+
+    detector = InitializedFlakyDetector()
+    detector._context = _make_flaky_detection_context(max_test_name_length=100)
+
+    detector.detect_from_report(make_report(nodeid="foo", when="setup", duration=1))
+    detector.detect_from_report(make_report(nodeid="foo", when="call", duration=2))
+    detector.detect_from_report(make_report(nodeid="foo", when="teardown", duration=3))
+
+    detector.detect_from_report(make_report(nodeid="foo", when="setup", duration=4))
+    detector.detect_from_report(make_report(nodeid="foo", when="call", duration=5))
+    detector.detect_from_report(make_report(nodeid="foo", when="teardown", duration=6))
+
+    metrics = detector._test_metrics.get("foo")
+    assert metrics is not None
+    assert metrics.initial_duration == datetime.timedelta(seconds=6)
+    assert metrics.rerun_count == 2
+    assert metrics.total_duration == datetime.timedelta(seconds=21)
+
+
 def test_flaky_detector_count_remaining_tests() -> None:
     detector = InitializedFlakyDetector()
     detector._test_metrics = {
@@ -79,11 +114,11 @@ def test_flaky_detector_get_rerun_count_for_test() -> None:
     )
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
-            initial_duration=datetime.timedelta(milliseconds=10),
+            initial_call_duration=datetime.timedelta(milliseconds=10),
             is_processed=True,
         ),
         "bar": flaky_detection._TestMetrics(
-            initial_duration=datetime.timedelta(milliseconds=100),
+            initial_call_duration=datetime.timedelta(milliseconds=100),
         ),
         "baz": flaky_detection._TestMetrics(),
     }
@@ -103,11 +138,11 @@ def test_flaky_detector_get_rerun_count_for_test_with_slow_test() -> None:
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
             # Can't be reran 5 times within the budget.
-            initial_duration=datetime.timedelta(seconds=1),
+            initial_call_duration=datetime.timedelta(seconds=1),
         ),
         "bar": flaky_detection._TestMetrics(
             # This test should not be impacted by the previous one.
-            initial_duration=datetime.timedelta(milliseconds=1),
+            initial_call_duration=datetime.timedelta(milliseconds=1),
         ),
     }
     detector.set_deadline()
@@ -128,7 +163,7 @@ def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
             # Should only be reran 1000 times, freeing the rest of the budget for other tests.
-            initial_duration=datetime.timedelta(milliseconds=1),
+            initial_call_duration=datetime.timedelta(milliseconds=1),
         ),
     }
     detector.set_deadline()
@@ -146,7 +181,7 @@ def test_flaky_detector_get_rerun_count_for_test_with_timeout() -> None:
     )
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
-            initial_duration=datetime.timedelta(milliseconds=4),
+            initial_call_duration=datetime.timedelta(milliseconds=4),
         ),
     }
     detector.set_deadline()
