@@ -13,6 +13,7 @@ opentelemetry-exporter-otlp-proto-http = ">=1.29"
 opentelemetry-sdk = ">=1.29"
 requests = ">=2"
 pytest = ">=6.0.0"
+pytest-timeout = "^2.4.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = ">=0.12,<0.15.0"
@@ -47,7 +48,8 @@ target-version = "py38"
 
 [[tool.mypy.overrides]]
 module = [
-  "pytest_opentelemetry.*"
+  "pytest_opentelemetry.*",
+  "pytest_timeout.*"
 ]
 ignore_missing_imports = true
 

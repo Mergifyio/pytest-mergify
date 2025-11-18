@@ -1,3 +1,4 @@
+import datetime
 import os
 import platform
 import sys
@@ -14,6 +15,7 @@ import _pytest.runner
 import _pytest.terminal
 import opentelemetry.trace
 import pytest
+import pytest_timeout
 from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -215,8 +217,15 @@ Common issues:
         if not self.mergify_ci.flaky_detector:
             return True
 
+        timeout_seconds = pytest_timeout._get_item_settings(item).timeout
+
         for _ in range(
-            self.mergify_ci.flaky_detector.get_rerun_count_for_test(item.nodeid)
+            self.mergify_ci.flaky_detector.get_rerun_count_for_test(
+                test=item.nodeid,
+                timeout=datetime.timedelta(seconds=timeout_seconds)
+                if timeout_seconds
+                else None,
+            )
         ):
             with self.tracer.start_as_current_span(
                 item.nodeid, attributes=attributes, context=context
