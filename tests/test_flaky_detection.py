@@ -59,7 +59,7 @@ def test_flaky_detector_get_duration_before_deadline() -> None:
     assert detector._get_duration_before_deadline() == datetime.timedelta(seconds=10)
 
 
-def test_flaky_detector_count_remaining_new_tests() -> None:
+def test_flaky_detector_count_remaining_tests() -> None:
     detector = InitializedFlakyDetector()
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(is_processed=True),
@@ -70,7 +70,7 @@ def test_flaky_detector_count_remaining_new_tests() -> None:
 
 
 @freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_rerun_count_for_new_tests() -> None:
+def test_flaky_detector_get_rerun_count_for_test() -> None:
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(
         min_test_execution_count=5,
@@ -93,7 +93,7 @@ def test_flaky_detector_get_rerun_count_for_new_tests() -> None:
 
 
 @freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_rerun_count_for_new_tests_with_slow_test() -> None:
+def test_flaky_detector_get_rerun_count_for_test_with_slow_test() -> None:
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(
         min_test_execution_count=5,
@@ -118,7 +118,7 @@ def test_flaky_detector_get_rerun_count_for_new_tests_with_slow_test() -> None:
 
 
 @freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_rerun_count_for_new_tests_with_fast_test() -> None:
+def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(
         min_test_execution_count=5,
@@ -134,3 +134,29 @@ def test_flaky_detector_get_rerun_count_for_new_tests_with_fast_test() -> None:
     detector.set_deadline()
 
     assert detector.get_rerun_count_for_test("foo") == 1000
+
+
+@freezegun.freeze_time(_NOW)
+def test_flaky_detector_get_rerun_count_for_test_with_timeout() -> None:
+    detector = InitializedFlakyDetector()
+    detector._context = _make_flaky_detection_context(
+        min_test_execution_count=5,
+        min_budget_duration_ms=4000,
+        max_test_execution_count=1000,
+    )
+    detector._test_metrics = {
+        "foo": flaky_detection._TestMetrics(
+            initial_duration=datetime.timedelta(milliseconds=4),
+        ),
+    }
+    detector.set_deadline()
+
+    # 4 ms * 1000 = 4000 ms budget, but with a timeout of 500 ms and a 10%
+    # safety margin (500 * 0.9 = 450 ms), we can only rerun 112 times (450 ms /
+    # 4 ms).
+    assert (
+        detector.get_rerun_count_for_test(
+            "foo", timeout=datetime.timedelta(milliseconds=500)
+        )
+        == 112
+    )

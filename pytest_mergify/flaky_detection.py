@@ -52,6 +52,8 @@ class _TestMetrics:
     scheduled_rerun_count: int = dataclasses.field(default=0)
     "Represents the number of reruns that have been scheduled for this test depending on the budget."
 
+    prevented_timeout: bool = dataclasses.field(default=False)
+
     total_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
     )
@@ -63,6 +65,9 @@ class _TestMetrics:
 
         self.rerun_count += 1
         self.total_duration += duration
+
+    def expected_duration(self) -> datetime.timedelta:
+        return self.initial_duration * self.scheduled_rerun_count
 
 
 @dataclasses.dataclass
@@ -172,7 +177,9 @@ class FlakyDetector:
     def is_test_tracked(self, test: str) -> bool:
         return test in self._test_metrics
 
-    def get_rerun_count_for_test(self, test: str) -> int:
+    def get_rerun_count_for_test(
+        self, test: str, timeout: typing.Optional[datetime.timedelta] = None
+    ) -> int:
         metrics = self._test_metrics.get(test)
         if not metrics:
             return 0
@@ -180,16 +187,33 @@ class FlakyDetector:
         budget_per_test = (
             self._get_duration_before_deadline() / self._count_remaining_tests()
         )
-        result = int(budget_per_test / metrics.initial_duration)
-        result = min(result, self._context.max_test_execution_count)
+        result = self._normalize_rerun_count(
+            int(budget_per_test / metrics.initial_duration)
+        )
 
-        # NOTE(remyduthu): Count as processed even if it's too slow.
         metrics.is_processed = True
+        metrics.scheduled_rerun_count = result
+
+        if not timeout:
+            return result
+
+        # NOTE(remyduthu): Leave a margin of 10 %. Better safe than sorry. We
+        # don't want to crash the CI.
+        safe_timeout = timeout * 0.9
+        if metrics.expected_duration() <= safe_timeout:
+            return result
+
+        metrics.prevented_timeout = True
+
+        # NOTE(remyduthu): Use the timeout to get the number of reruns. The goal
+        # is to still have some reruns.
+        return self._normalize_rerun_count(int(safe_timeout / metrics.initial_duration))
+
+    def _normalize_rerun_count(self, count: int) -> int:
+        result = min(count, self._context.max_test_execution_count)
 
         if result < self._context.min_test_execution_count:
             return 0
-
-        metrics.scheduled_rerun_count = result
 
         return result
 
@@ -255,6 +279,29 @@ class FlakyDetector:
                 f"time{'s' if metrics.rerun_count > 1 else ''} using approx. "
                 f"{rerun_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
                 f"({rerun_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+            )
+
+        tests_prevented_from_timeout = [
+            test
+            for test, metrics in self._test_metrics.items()
+            if metrics.prevented_timeout
+        ]
+        if tests_prevented_from_timeout:
+            result += (
+                f"{os.linesep}⚠️ Reduced reruns for the following "
+                f"test{'s' if len(tests_prevented_from_timeout) else ''} to respect 'pytest-timeout':"
+            )
+
+            for test in [
+                test
+                for test, metrics in self._test_metrics.items()
+                if metrics.prevented_timeout
+            ]:
+                result += f"{os.linesep}    • '{test}'"
+
+            result += (
+                f"{os.linesep}To improve flaky detection and prevent fixture-level timeouts from limiting reruns, enable function-only timeouts. "
+                f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
             )
 
         return result
