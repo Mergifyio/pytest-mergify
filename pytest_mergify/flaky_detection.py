@@ -37,10 +37,27 @@ class _FlakyDetectionContext:
 class _TestMetrics:
     "Represents metrics collected for a test."
 
-    initial_duration: datetime.timedelta = dataclasses.field(
+    initial_setup_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
     )
-    "Represents the duration of the initial execution of the test."
+    initial_call_duration: datetime.timedelta = dataclasses.field(
+        default_factory=datetime.timedelta
+    )
+    initial_teardown_duration: datetime.timedelta = dataclasses.field(
+        default_factory=datetime.timedelta
+    )
+
+    @property
+    def initial_duration(self) -> datetime.timedelta:
+        """
+        Represents the duration of the initial run of the test including the 3
+        phases of the protocol (setup, call, teardown).
+        """
+        return (
+            self.initial_setup_duration
+            + self.initial_call_duration
+            + self.initial_teardown_duration
+        )
 
     # NOTE(remyduthu): We need this flag because we may have processed a test
     # without scheduling reruns for it (e.g., because it was too slow).
@@ -59,11 +76,19 @@ class _TestMetrics:
     )
     "Represents the total duration spent executing this test, including reruns."
 
-    def add_duration(self, duration: datetime.timedelta) -> None:
-        if not self.initial_duration:
-            self.initial_duration = duration
+    def fill_from_report(self, report: _pytest.reports.TestReport) -> None:
+        duration = datetime.timedelta(seconds=report.duration)
 
-        self.rerun_count += 1
+        if report.when == "setup" and not self.initial_setup_duration:
+            self.initial_setup_duration = duration
+        elif report.when == "call" and not self.initial_call_duration:
+            self.initial_call_duration = duration
+        elif report.when == "teardown" and not self.initial_teardown_duration:
+            self.initial_teardown_duration = duration
+
+        if report.when == "call":
+            self.rerun_count += 1
+
         self.total_duration += duration
 
     def expected_duration(self) -> datetime.timedelta:
@@ -141,9 +166,6 @@ class FlakyDetector:
         return result
 
     def detect_from_report(self, report: _pytest.reports.TestReport) -> bool:
-        if report.when != "call":
-            return False
-
         if report.outcome not in ["failed", "passed"]:
             return False
 
@@ -161,7 +183,7 @@ class FlakyDetector:
             return False
 
         metrics = self._test_metrics.setdefault(test, _TestMetrics())
-        metrics.add_duration(datetime.timedelta(seconds=report.duration))
+        metrics.fill_from_report(report)
 
         return True
 
