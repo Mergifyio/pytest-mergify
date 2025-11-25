@@ -62,7 +62,7 @@ def test_flaky_detector_get_duration_before_deadline() -> None:
     assert detector._get_duration_before_deadline() == datetime.timedelta(seconds=10)
 
 
-def test_flaky_detector_detect_from_report() -> None:
+def test_flaky_detector_try_fill_metrics_from_report() -> None:
     def make_report(
         nodeid: str, when: typing.Literal["setup", "call", "teardown"], duration: float
     ) -> _pytest.reports.TestReport:
@@ -79,13 +79,25 @@ def test_flaky_detector_detect_from_report() -> None:
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(max_test_name_length=100)
 
-    detector.detect_from_report(make_report(nodeid="foo", when="setup", duration=1))
-    detector.detect_from_report(make_report(nodeid="foo", when="call", duration=2))
-    detector.detect_from_report(make_report(nodeid="foo", when="teardown", duration=3))
+    detector.try_fill_metrics_from_report(
+        make_report(nodeid="foo", when="setup", duration=1)
+    )
+    detector.try_fill_metrics_from_report(
+        make_report(nodeid="foo", when="call", duration=2)
+    )
+    detector.try_fill_metrics_from_report(
+        make_report(nodeid="foo", when="teardown", duration=3)
+    )
 
-    detector.detect_from_report(make_report(nodeid="foo", when="setup", duration=4))
-    detector.detect_from_report(make_report(nodeid="foo", when="call", duration=5))
-    detector.detect_from_report(make_report(nodeid="foo", when="teardown", duration=6))
+    detector.try_fill_metrics_from_report(
+        make_report(nodeid="foo", when="setup", duration=4)
+    )
+    detector.try_fill_metrics_from_report(
+        make_report(nodeid="foo", when="call", duration=5)
+    )
+    detector.try_fill_metrics_from_report(
+        make_report(nodeid="foo", when="teardown", duration=6)
+    )
 
     metrics = detector._test_metrics.get("foo")
     assert metrics is not None

@@ -211,56 +211,70 @@ Common issues:
         # calculate the number of reruns.
         with self.tracer.start_as_current_span(
             item.nodeid, attributes=attributes, context=context
-        ):
-            _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
+        ) as current_span:
+            distinct_outcomes = set()
 
-        if not self.mergify_ci.flaky_detector:
-            return True
-
-        timeout_seconds = pytest_timeout._get_item_settings(item).timeout
-
-        for _ in range(
-            self.mergify_ci.flaky_detector.get_rerun_count_for_test(
-                test=item.nodeid,
-                timeout=datetime.timedelta(seconds=timeout_seconds)
-                if timeout_seconds
-                else None,
-            )
-        ):
-            with self.tracer.start_as_current_span(
-                item.nodeid, attributes=attributes, context=context
+            for report in _pytest.runner.runtestprotocol(
+                item=item, nextitem=nextitem, log=True
             ):
-                self._reruntestprotocol(item, nextitem)
+                distinct_outcomes.add(report.outcome)
 
-            if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+            if not self.mergify_ci.flaky_detector:
                 return True
+
+            timeout_seconds = pytest_timeout._get_item_settings(item).timeout
+
+            rerun_count = 0
+            for _ in range(
+                self.mergify_ci.flaky_detector.get_rerun_count_for_test(
+                    test=item.nodeid,
+                    timeout=datetime.timedelta(seconds=timeout_seconds)
+                    if timeout_seconds
+                    else None,
+                )
+            ):
+                for report in self._reruntestprotocol(item, nextitem):
+                    distinct_outcomes.add(report.outcome)
+
+                rerun_count += 1
+
+                if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+                    break
+
+            if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
+                current_span.set_attribute("cicd.test.flaky", True)
+
+            current_span.set_attribute("cicd.test.rerun_count", rerun_count)
 
         return True
 
     def _reruntestprotocol(
         self, item: _pytest.nodes.Item, nextitem: typing.Optional[_pytest.nodes.Item]
-    ) -> None:
+    ) -> typing.List[_pytest.reports.TestReport]:
         """
         Run the protocol for a rerun of a given test.
 
         In `new` mode, we log rerun failures to pytest's report to enforce a
         quality gate and prevent merging PRs with new flaky tests. In other
         modes (`unhealthy`), we skip logging to avoid blocking CI, but still
-        capture reruns in spans.
+        capture reruns in metrics.
         """
 
         if not self.mergify_ci.flaky_detector:
-            return
+            return []
 
         if self.mergify_ci.flaky_detector.mode == "new":
-            _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
-            return
+            return _pytest.runner.runtestprotocol(
+                item=item, nextitem=nextitem, log=True
+            )
 
         reports = _pytest.runner.runtestprotocol(
             item=item, nextitem=nextitem, log=False
         )
         for report in reports:
-            self.pytest_runtest_logreport(report)
+            self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report)
+
+        return reports
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_teardown(
@@ -340,8 +354,7 @@ Common issues:
         if not self.mergify_ci.flaky_detector:
             return
 
-        detected = self.mergify_ci.flaky_detector.detect_from_report(report)
-        if not detected:
+        if not self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report):
             return
 
         test_span.set_attributes({"cicd.test.flaky_detection": True})
