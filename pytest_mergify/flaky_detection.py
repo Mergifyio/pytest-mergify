@@ -165,7 +165,7 @@ class FlakyDetector:
 
         return result
 
-    def detect_from_report(self, report: _pytest.reports.TestReport) -> bool:
+    def try_fill_metrics_from_report(self, report: _pytest.reports.TestReport) -> bool:
         if report.outcome not in ["failed", "passed"]:
             return False
 

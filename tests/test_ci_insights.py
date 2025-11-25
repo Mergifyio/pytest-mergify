@@ -7,7 +7,6 @@ import _pytest.pytester
 import _pytest.reports
 import pytest
 import responses
-from opentelemetry.sdk import trace
 
 import pytest_mergify
 from pytest_mergify import ci_insights
@@ -199,10 +198,11 @@ def test_flaky_detection_for_new_tests(
     )
 
     assert spans is not None
+    assert len(spans) == 1 + 6  # 1 for the session and one per test.
 
-    # 1 span for the session and one per test.
-    assert len(spans) == 1 + sum(result.parseoutcomes().values())
-
+    flaky_tests = [
+        "test_flaky_detection_for_new_tests.py::test_bar",
+    ]
     new_tests = [
         "test_flaky_detection_for_new_tests.py::test_bar",
         "test_flaky_detection_for_new_tests.py::test_baz",
@@ -212,12 +212,13 @@ def test_flaky_detection_for_new_tests(
         assert span is not None
         assert span.attributes is not None
 
-        is_new_test = span.name in new_tests
-        if not is_new_test:
-            continue
+        if span.name in flaky_tests:
+            assert span.attributes.get("cicd.test.flaky", False) is True
 
-        assert span.attributes.get("cicd.test.flaky_detection", False)
-        assert span.attributes.get("cicd.test.new", False)
+        if span.name in new_tests:
+            assert span.attributes.get("cicd.test.flaky_detection", False) is True
+            assert span.attributes.get("cicd.test.new", False) is True
+            assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
 
 
 @responses.activate
@@ -283,10 +284,9 @@ def test_flaky_detection_for_unhealthy_tests(
     )
 
     assert spans is not None
+    assert len(spans) == 5 + 1  # 1 for the session and one per test.
 
-    # 1 span for the session and one per test, including 1000 reruns for each unhealthy test.
-    assert len(spans) == 1 + 3005
-
+    flaky_tests = ["test_flaky_detection_for_unhealthy_tests.py::test_bar"]
     unhealthy_tests = [
         "test_flaky_detection_for_unhealthy_tests.py::test_bar",
         "test_flaky_detection_for_unhealthy_tests.py::test_baz",
@@ -296,12 +296,13 @@ def test_flaky_detection_for_unhealthy_tests(
         assert span is not None
         assert span.attributes is not None
 
-        is_unhealthy_test = span.name in unhealthy_tests
-        if not is_unhealthy_test:
-            continue
+        if span.name in flaky_tests:
+            assert span.attributes.get("cicd.test.flaky", False) is True
 
-        assert span.attributes.get("cicd.test.flaky_detection", False)
-        assert not span.attributes.get("cicd.test.new", False)
+        if span.name in unhealthy_tests:
+            assert not span.attributes.get("cicd.test.new")
+            assert span.attributes.get("cicd.test.flaky_detection", False) is True
+            assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
 
 
 @responses.activate
@@ -448,14 +449,16 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
     result.assert_outcomes(passed=1002)
 
     assert spans is not None
+    assert len(spans) == 1 + 2  # 1 for the session and one per test.
 
-    # Only 1 execution for the existing test (`test_foo`), 1001 executions for
-    # the new test (`test_bar`) and 1 additional span for the session.
-    assert _get_span_counts(spans) == {
-        "pytest session start": 1,
-        "test_flaky_detection_with_only_one_new_test_at_the_end.py::test_foo": 1,
-        "test_flaky_detection_with_only_one_new_test_at_the_end.py::test_bar": 1001,
-    }
+    span = spans.get(
+        "test_flaky_detection_with_only_one_new_test_at_the_end.py::test_bar"
+    )
+    assert span is not None
+    assert span.attributes is not None
+    assert span.attributes.get("cicd.test.flaky_detection", False) is True
+    assert span.attributes.get("cicd.test.new", False) is True
+    assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
 
 
 @responses.activate
@@ -622,13 +625,3 @@ def test_flaky_detector_filter_context_tests_with_session(
     # Unknown test should have been filtered out after collection.
     assert len(plugin.mergify_ci.flaky_detector._context.existing_test_names) == 2
     assert len(plugin.mergify_ci.flaky_detector._context.unhealthy_test_names) == 1
-
-
-def _get_span_counts(
-    spans: typing.Dict[str, trace.ReadableSpan],
-) -> typing.Dict[str, int]:
-    result: typing.Dict[str, int] = {}
-    for span in spans.values():
-        result[span.name] = result.get(span.name, 0) + 1
-
-    return result
