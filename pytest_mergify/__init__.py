@@ -272,9 +272,33 @@ Common issues:
             item=item, nextitem=nextitem, log=False
         )
         for report in reports:
-            self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report)
+            if report.when != "call":
+                item.ihook.pytest_runtest_logreport(report=report)  # Log as usual.
+            else:
+                # Make rerun visible in the logs by temporarily changing
+                # outcome. The goal is to count a potential failure as a rerun
+                # instead of a regular failure.
+                original_outcome = report.outcome
+                report.outcome = "rerun"  # type: ignore[assignment]
+                item.ihook.pytest_runtest_logreport(report=report)
+                report.outcome = original_outcome
 
         return reports
+
+    @pytest.hookimpl
+    def pytest_report_teststatus(
+        self,
+        report: _pytest.reports.TestReport,
+    ) -> typing.Optional[
+        typing.Tuple[
+            str, str, typing.Union[str, typing.Tuple[str, typing.Mapping[str, bool]]]
+        ]
+    ]:
+        # https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L622-L625
+        if report.outcome == "rerun":  # type: ignore[comparison-overlap]
+            return "rerun", "R", ("RERUN", {"yellow": True})  # type: ignore[unreachable]
+
+        return None
 
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_teardown(

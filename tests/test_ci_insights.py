@@ -269,10 +269,12 @@ def test_flaky_detection_for_unhealthy_tests(
     # The goal is to make sure the failed rerun of the flaky test does not
     # impact the results to avoid failing the CI of our users.
     assert result.ret == 0
-    result.assert_outcomes(
-        passed=4,  # Initial run of each test.
-        skipped=1,
-    )
+
+    outcomes = result.parseoutcomes()
+    assert len(outcomes) == 3
+    assert outcomes["passed"] == 4  # Initial run of each test.
+    assert outcomes["skipped"] == 1
+    assert outcomes["rerun"] == 3000  # 1000 reruns for each unhealthy test.
 
     assert re.search(
         r"""🐛 Flaky detection
