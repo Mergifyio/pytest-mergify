@@ -252,7 +252,7 @@ def test_flaky_detection_for_unhealthy_tests(
             global execution_count
             execution_count += 1
 
-            if execution_count == 1:
+            if execution_count == 2:
                 pytest.fail("I'm flaky!")
 
         def test_baz():
@@ -266,10 +266,12 @@ def test_flaky_detection_for_unhealthy_tests(
         """
     )
 
+    # The goal is to make sure the failed rerun of the flaky test does not
+    # impact the results to avoid failing the CI of our users.
+    assert result.ret == 0
     result.assert_outcomes(
-        failed=1,  # Only the first execution of the flaky test.
-        passed=3,  # Do not log the reruns so the CI doesn't fail. The goal is to send data to Mergify, not lock the CI of our users.
-        skipped=1,  # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
+        passed=4,  # Initial run of each test.
+        skipped=1,
     )
 
     assert re.search(
