@@ -2,7 +2,6 @@ import datetime
 import typing
 
 import _pytest
-import _pytest.reports
 import freezegun
 
 from pytest_mergify import flaky_detection
@@ -51,6 +50,35 @@ def _make_flaky_detection_context(
         max_test_name_length=max_test_name_length,
         min_budget_duration_ms=min_budget_duration_ms,
         min_test_execution_count=min_test_execution_count,
+    )
+
+
+@freezegun.freeze_time(_NOW)
+def test_flaky_detection_try_write_test_deadline() -> None:
+    detector = InitializedFlakyDetector()
+
+    detector._deadline = _NOW + datetime.timedelta(seconds=10)
+    detector._test_metrics["foo"] = flaky_detection._TestMetrics(
+        scheduled_rerun_count=5,
+        initial_call_duration=datetime.timedelta(seconds=1),
+    )
+    detector.try_write_test_deadline("foo")
+    assert (
+        str(detector._test_metrics["foo"].deadline)
+        == "2025-01-01 00:00:06.250000+00:00"  # 5 reruns * 1 sec * 1.25 safety margin.
+    )
+
+    detector._deadline = _NOW + datetime.timedelta(seconds=3)
+    detector.try_write_test_deadline("foo")
+    assert (
+        str(detector._test_metrics["foo"].deadline)
+        == "2025-01-01 00:00:03+00:00"  # Sooner global deadline.
+    )
+
+    detector.try_write_test_deadline("foo", timeout=datetime.timedelta(seconds=2))
+    assert (
+        str(detector._test_metrics["foo"].deadline)
+        == "2025-01-01 00:00:02+00:00"  # Sooner timeout.
     )
 
 

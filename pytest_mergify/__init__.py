@@ -223,22 +223,32 @@ Common issues:
                 return True
 
             timeout_seconds = pytest_timeout._get_item_settings(item).timeout
+            timeout = (
+                datetime.timedelta(seconds=timeout_seconds) if timeout_seconds else None
+            )
+
+            scheduled_rerun_count = (
+                self.mergify_ci.flaky_detector.get_rerun_count_for_test(
+                    test=item.nodeid, timeout=timeout
+                )
+            )
+            if not scheduled_rerun_count:
+                return True
+
+            self.mergify_ci.flaky_detector.try_write_test_deadline(
+                test=item.nodeid, timeout=timeout
+            )
 
             rerun_count = 0
-            for _ in range(
-                self.mergify_ci.flaky_detector.get_rerun_count_for_test(
-                    test=item.nodeid,
-                    timeout=datetime.timedelta(seconds=timeout_seconds)
-                    if timeout_seconds
-                    else None,
-                )
-            ):
+            for _ in range(scheduled_rerun_count):
                 for report in self._reruntestprotocol(item, nextitem):
                     distinct_outcomes.add(report.outcome)
 
                 rerun_count += 1
 
-                if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+                if self.mergify_ci.flaky_detector.is_test_deadline_exceeded(
+                    item.nodeid
+                ):
                     break
 
             if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
@@ -313,10 +323,9 @@ Common issues:
 
         # The goal here is to keep only function-scoped finalizers during
         # reruns and restore higher-scoped finalizers only on the last one.
-        if (
-            self.mergify_ci.flaky_detector.is_deadline_exceeded()
-            or self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid)
-        ):
+        if self.mergify_ci.flaky_detector.is_test_deadline_exceeded(
+            item.nodeid
+        ) or self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)
         else:
             self.mergify_ci.flaky_detector.suspend_item_finalizers(item)

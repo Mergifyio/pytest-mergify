@@ -71,6 +71,8 @@ class _TestMetrics:
 
     prevented_timeout: bool = dataclasses.field(default=False)
 
+    deadline: typing.Optional[datetime.datetime] = dataclasses.field(default=None)
+
     total_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
     )
@@ -92,7 +94,12 @@ class _TestMetrics:
         self.total_duration += duration
 
     def expected_duration(self) -> datetime.timedelta:
-        return self.initial_duration * self.scheduled_rerun_count
+        return (
+            # Add a very small overhead for blazing fast tests (mostly our own
+            # tests using pytester).
+            max(self.initial_duration, datetime.timedelta(milliseconds=5))
+            * self.scheduled_rerun_count
+        ) * 1.25  # Account for some variability in execution time.
 
 
 @dataclasses.dataclass
@@ -231,6 +238,35 @@ class FlakyDetector:
         # is to still have some reruns.
         return self._normalize_rerun_count(int(safe_timeout / metrics.initial_duration))
 
+    def try_write_test_deadline(
+        self, test: str, timeout: typing.Optional[datetime.timedelta] = None
+    ) -> None:
+        """
+        Set deadline as the earliest of the following constraints:
+
+        - Global session deadline (to respect overall budget),
+        - Test's expected duration (to prevent runaway executions),
+        - pytest-timeout setting (to prevent timeout violations).
+
+        This ensures reruns complete before any time constraint is violated.
+        """
+
+        if not self._deadline:
+            return  # Global deadline should be set at this point.
+
+        metrics = self._test_metrics.get(test)
+        if not metrics:
+            return
+
+        constraints = [
+            self._deadline,
+            datetime.datetime.now(datetime.timezone.utc) + metrics.expected_duration(),
+        ]
+        if timeout:
+            constraints.append(datetime.datetime.now(datetime.timezone.utc) + timeout)
+
+        metrics.deadline = min(constraints)
+
     def _normalize_rerun_count(self, count: int) -> int:
         result = min(count, self._context.max_test_execution_count)
 
@@ -239,11 +275,12 @@ class FlakyDetector:
 
         return result
 
-    def is_deadline_exceeded(self) -> bool:
-        return (
-            self._deadline is not None
-            and datetime.datetime.now(datetime.timezone.utc) >= self._deadline
-        )
+    def is_test_deadline_exceeded(self, test: str) -> bool:
+        metrics = self._test_metrics.get(test)
+        if not metrics or not metrics.deadline:
+            return False
+
+        return datetime.datetime.now(datetime.timezone.utc) >= metrics.deadline
 
     def make_report(self) -> str:
         result = "🐛 Flaky detection"
