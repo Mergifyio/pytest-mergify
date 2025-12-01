@@ -233,13 +233,13 @@ Common issues:
                     else None,
                 )
             ):
+                if self.mergify_ci.flaky_detector.is_deadline_exceeded():
+                    break
+
                 for report in self._reruntestprotocol(item, nextitem):
                     distinct_outcomes.add(report.outcome)
 
                 rerun_count += 1
-
-                if self.mergify_ci.flaky_detector.is_deadline_exceeded():
-                    break
 
             if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
                 current_span.set_attribute("cicd.test.flaky", True)
