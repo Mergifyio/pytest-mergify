@@ -69,6 +69,8 @@ class _TestMetrics:
     scheduled_rerun_count: int = dataclasses.field(default=0)
     "Represents the number of reruns that have been scheduled for this test depending on the budget."
 
+    deadline: typing.Optional[datetime.datetime] = dataclasses.field(default=None)
+
     prevented_timeout: bool = dataclasses.field(default=False)
 
     total_duration: datetime.timedelta = dataclasses.field(
@@ -199,9 +201,7 @@ class FlakyDetector:
     def is_test_tracked(self, test: str) -> bool:
         return test in self._test_metrics
 
-    def get_rerun_count_for_test(
-        self, test: str, timeout: typing.Optional[datetime.timedelta] = None
-    ) -> int:
+    def get_rerun_count_for_test(self, test: str) -> int:
         metrics = self._test_metrics.get(test)
         if not metrics:
             return 0
@@ -216,20 +216,7 @@ class FlakyDetector:
         metrics.is_processed = True
         metrics.scheduled_rerun_count = result
 
-        if not timeout:
-            return result
-
-        # NOTE(remyduthu): Leave a margin of 10 %. Better safe than sorry. We
-        # don't want to crash the CI.
-        safe_timeout = timeout * 0.9
-        if metrics.expected_duration() <= safe_timeout:
-            return result
-
-        metrics.prevented_timeout = True
-
-        # NOTE(remyduthu): Use the timeout to get the number of reruns. The goal
-        # is to still have some reruns.
-        return self._normalize_rerun_count(int(safe_timeout / metrics.initial_duration))
+        return result
 
     def _normalize_rerun_count(self, count: int) -> int:
         result = min(count, self._context.max_test_execution_count)
@@ -239,11 +226,12 @@ class FlakyDetector:
 
         return result
 
-    def is_deadline_exceeded(self) -> bool:
-        return (
-            self._deadline is not None
-            and datetime.datetime.now(datetime.timezone.utc) >= self._deadline
-        )
+    def is_test_deadline_exceeded(self, test: str) -> bool:
+        metrics = self._test_metrics.get(test)
+        if not metrics or not metrics.deadline:
+            return False
+
+        return datetime.datetime.now(datetime.timezone.utc) >= metrics.deadline
 
     def make_report(self) -> str:
         result = "🐛 Flaky detection"
@@ -334,6 +322,26 @@ class FlakyDetector:
             + self._context.existing_tests_mean_duration
             + self._get_budget_duration()
         )
+
+    def set_test_deadline(
+        self, test: str, timeout: typing.Optional[datetime.timedelta] = None
+    ) -> None:
+        metrics = self._test_metrics.get(test)
+        if not metrics:
+            return
+
+        metrics.deadline = self._deadline
+
+        if not timeout:
+            return
+
+        # Leave a margin of 10 %. Better safe than sorry. We don't want to crash
+        # the CI.
+        safe_timeout = timeout * 0.9
+        timeout_deadline = datetime.datetime.now(datetime.timezone.utc) + safe_timeout
+        if not metrics.deadline or timeout_deadline < metrics.deadline:
+            metrics.deadline = timeout_deadline
+            metrics.prevented_timeout = True
 
     def is_last_rerun_for_test(self, test: str) -> bool:
         "Returns true if the given test exists and this is its last rerun."
