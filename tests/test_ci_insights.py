@@ -558,7 +558,9 @@ def test_flaky_detection_budget_deadline_stops_reruns(
             # Simulate a slow execution that reaches the deadline.
             if not self.deadline_patched and self.execution_count == 10:
                 # Set the deadline in the past to stop immediately.
-                plugin.mergify_ci.flaky_detector._deadline = datetime.datetime.now(
+                plugin.mergify_ci.flaky_detector._test_metrics[
+                    "test_flaky_detection_budget_deadline_stops_reruns.py::test_new"
+                ].deadline = datetime.datetime.now(
                     datetime.timezone.utc
                 ) - datetime.timedelta(hours=1)
 
