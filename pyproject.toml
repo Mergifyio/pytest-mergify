@@ -1,38 +1,46 @@
-[tool.poetry]
+[project]
 name = "pytest-mergify"
-version = "0"
+dynamic = ["version"]
 description = "Pytest plugin for Mergify"
-authors = ["Julien Danjou <jd@mergify.com>"]
+authors = [{ name = "Julien Danjou", email = "jd@mergify.com" }]
 license = "GPL-3.0-only"
 readme = "README.md"
 
-[tool.poetry.dependencies]
-python = ">=3.8"
-# We set this version explicitly to avoid breaking changes
-opentelemetry-exporter-otlp-proto-http = ">=1.29"
-opentelemetry-sdk = ">=1.29"
-requests = ">=2"
-pytest = ">=6.0.0"
-pytest-timeout = "^2.4.0"
+requires-python = ">=3.8"
+dependencies = [
+    "opentelemetry-exporter-otlp-proto-http>=1.29",
+    "opentelemetry-sdk>=1.29",
+    "requests>=2",
+    "pytest>=6.0.0",
+    "pytest-timeout>=2.4.0",
+]
 
-[tool.poetry.group.dev.dependencies]
-ruff = ">=0.12,<0.15.0"
-mypy = "^1.13.0"
-poethepoet = ">=0.30"
-codespell = "^2.3.0"
-yamllint = "^1.35.1"
-anys = "^0.3.1"
-responses = "^0.25.7"
-# https://github.com/pytest-dev/pytest-asyncio/issues/706#issuecomment-2082788963
-pytest-asyncio = "0.24.0"
-freezegun = "^1.5.5"
+[dependency-groups]
+dev = [
+    "ruff==0.14.8",
+    "mypy==1.14.1",
+    "poethepoet==0.30.0",
+    "codespell==2.4.1",
+    "yamllint==1.35.1",
+    "anys==0.3.1",
+    "responses==0.25.8",
+    # https://github.com/pytest-dev/pytest-asyncio/issues/706#issuecomment-2082788963
+    "pytest-asyncio==0.24.0",
+    "freezegun==1.5.5",
+]
 
 [build-system]
-requires = ["poetry-core", "poetry-dynamic-versioning"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
-[tool.poetry.plugins.pytest11]
+
+[project.entry-points.pytest11]
 pytest_mergify = "pytest_mergify"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0"
+
 
 [tool.poe]
 include = ["poe.toml"]
@@ -49,16 +57,7 @@ target-version = "py38"
 [[tool.mypy.overrides]]
 module = [
   "pytest_opentelemetry.*",
-  "pytest_timeout.*"
+  "pytest_timeout.*",
+  "requests"
 ]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "requests"
-ignore_missing_imports = true
-
-[tool.poetry-dynamic-versioning]
-enable = true
-vcs = "git"
-dirty = true
-pattern = "default-unprefixed"

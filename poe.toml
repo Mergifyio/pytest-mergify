@@ -1,5 +1,5 @@
 [tool.poe.executor]
-type = "poetry"
+type = "uv"
 
 [tool.poe.tasks.test]
 cmd = "pytest -v --pyargs tests"
@@ -8,7 +8,6 @@ _MERGIFY_TEST_NEW_FLAKY_DETECTION = "true"
 
 [tool.poe.tasks.linters]
 help = "Run linters"
-deps = ["setup"]
 default_item_type = "cmd"
 sequence = [
   "ruff check .",
@@ -17,8 +16,3 @@ sequence = [
   "codespell",
   "yamllint .",
 ]
-
-[tool.poe.tasks.setup]
-help = "Sync poetry virtualenv"
-executor = { type = "simple" }
-cmd = "./tools/poetry-install.sh"
