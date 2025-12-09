@@ -25,7 +25,7 @@ dev = [
     "anys==0.3.1",
     "responses==0.25.8",
     # https://github.com/pytest-dev/pytest-asyncio/issues/706#issuecomment-2082788963
-    "pytest-asyncio==0.24.0",
+    "pytest-asyncio==1.2.0",
     "freezegun==1.5.5",
 ]
 
