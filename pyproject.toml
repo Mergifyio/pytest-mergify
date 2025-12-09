@@ -21,7 +21,7 @@ dev = [
     "mypy==1.14.1",
     "poethepoet==0.30.0",
     "codespell==2.4.1",
-    "yamllint==1.35.1",
+    "yamllint==1.37.1",
     "anys==0.3.1",
     "responses==0.25.8",
     # https://github.com/pytest-dev/pytest-asyncio/issues/706#issuecomment-2082788963
