@@ -19,7 +19,7 @@ dependencies = [
 dev = [
     "ruff==0.14.8",
     "mypy==1.14.1",
-    "poethepoet==0.30.0",
+    "poethepoet==0.37.0",
     "codespell==2.4.1",
     "yamllint==1.35.1",
     "anys==0.3.1",
