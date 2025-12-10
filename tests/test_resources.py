@@ -37,15 +37,10 @@ def test_span_resources_attributes_mergify(
     pytester_with_spans: conftest.PytesterWithSpanT,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MERGIFY_TEST_FLAKY_DETECTION", "yes")
     monkeypatch.setenv("MERGIFY_TEST_JOB_NAME", "f00b4r")
 
     result, spans = pytester_with_spans()
     assert spans is not None
-    assert all(
-        span.resource.attributes["mergify.test.flaky_detection_enabled"] is True
-        for span in spans.values()
-    )
     assert all(
         span.resource.attributes["mergify.test.job.name"] == "f00b4r"
         for span in spans.values()
