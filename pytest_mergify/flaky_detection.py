@@ -209,8 +209,9 @@ class FlakyDetector:
         budget_per_test = (
             self._get_duration_before_deadline() / self._count_remaining_tests()
         )
-        result = self._normalize_rerun_count(
-            int(budget_per_test / metrics.initial_duration)
+
+        result = self._get_normalized_rerun_count(
+            budget_per_test, metrics.initial_duration
         )
 
         metrics.is_processed = True
@@ -218,7 +219,14 @@ class FlakyDetector:
 
         return result
 
-    def _normalize_rerun_count(self, count: int) -> int:
+    def _get_normalized_rerun_count(
+        self, budget_per_test: datetime.timedelta, initial_duration: datetime.timedelta
+    ) -> int:
+        if initial_duration == datetime.timedelta():
+            count = self._context.max_test_execution_count
+        else:
+            count = int(budget_per_test / initial_duration)
+
         result = min(count, self._context.max_test_execution_count)
 
         if result < self._context.min_test_execution_count:
