@@ -29,7 +29,7 @@ jobs:
           _MERGIFY_TEST_NEW_FLAKY_DETECTION: "true"
         run: |
           export UV_PYTHON=${{ matrix.python-version }}
-          export UV_FROZEN=1
+          export UV_LOCKED=1
           uv run poe linters
           uv run poe test
           uv build
