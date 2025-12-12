@@ -17,7 +17,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.14.8",
+    "ruff==0.14.9",
     "mypy==1.19.0",
     "poethepoet==0.37.0",
     "codespell==2.4.1",
