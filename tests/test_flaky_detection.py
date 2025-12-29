@@ -70,7 +70,7 @@ def test_flaky_detector_set_test_deadline() -> None:
     detector.set_test_deadline("foo", timeout=datetime.timedelta(seconds=5))
     assert (
         str(detector._test_metrics["foo"].deadline)
-        == "2025-01-01 00:00:04.500000+00:00"  # 10 % margin applied.
+        == "2025-01-01 00:00:03.750000+00:00"  # 25 % margin applied.
     )
 
 

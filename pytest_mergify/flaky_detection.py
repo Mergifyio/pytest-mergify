@@ -343,9 +343,10 @@ class FlakyDetector:
         if not timeout:
             return
 
-        # Leave a margin of 10 %. Better safe than sorry. We don't want to crash
-        # the CI.
-        safe_timeout = timeout * 0.9
+        # Leave a margin of 25 %. Better safe than sorry. We don't want to crash
+        # the CI. The goal is to mark the test and explain to the user how to
+        # optimize the flaky detection in the final report.
+        safe_timeout = timeout * 0.75
         timeout_deadline = datetime.datetime.now(datetime.timezone.utc) + safe_timeout
         if not metrics.deadline or timeout_deadline < metrics.deadline:
             metrics.deadline = timeout_deadline
