@@ -234,12 +234,22 @@ class FlakyDetector:
 
         return result
 
-    def is_test_deadline_exceeded(self, test: str) -> bool:
+    def should_abort_reruns(self, test: str) -> bool:
+        """
+        Determines if a test can be rerun within its deadline.
+
+        We must ensure there's enough time remaining before the deadline to
+        complete another full test execution. This prevents starting a rerun
+        that would exceed the deadline and potentially timeout.
+        """
         metrics = self._test_metrics.get(test)
         if not metrics or not metrics.deadline:
             return False
 
-        return datetime.datetime.now(datetime.timezone.utc) >= metrics.deadline
+        projected_completion = (
+            datetime.datetime.now(datetime.timezone.utc) + metrics.initial_duration
+        )
+        return projected_completion >= metrics.deadline
 
     def make_report(self) -> str:
         result = "🐛 Flaky detection"

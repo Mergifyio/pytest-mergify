@@ -4,6 +4,7 @@ import typing
 import _pytest
 import _pytest.reports
 import freezegun
+import pytest
 
 from pytest_mergify import flaky_detection
 
@@ -201,3 +202,64 @@ def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
     detector.set_deadline()
 
     assert detector.get_rerun_count_for_test("foo") == 1000
+
+
+@freezegun.freeze_time(
+    time_to_freeze=datetime.datetime.fromisoformat("2025-01-01T00:00:00+00:00")
+)
+@pytest.mark.parametrize(
+    argnames=("metrics", "test", "expected"),
+    argvalues=[
+        pytest.param({}, "foo", False, id="Metrics not found"),
+        pytest.param(
+            {"foo": flaky_detection._TestMetrics()}, "foo", False, id="Deadline not set"
+        ),
+        pytest.param(
+            {
+                "foo": flaky_detection._TestMetrics(
+                    deadline=datetime.datetime.fromisoformat(
+                        "2025-01-02T00:00:00+00:00"
+                    ),
+                    initial_call_duration=datetime.timedelta(seconds=1),
+                ),
+            },
+            "foo",
+            False,
+            id="Not aborted",
+        ),
+        pytest.param(
+            {
+                "foo": flaky_detection._TestMetrics(
+                    deadline=datetime.datetime.fromisoformat(
+                        "2025-01-01T00:00:00+00:00"
+                    ),
+                    initial_call_duration=datetime.timedelta(),
+                ),
+            },
+            "foo",
+            True,
+            id="Aborted by deadline",
+        ),
+        pytest.param(
+            {
+                "foo": flaky_detection._TestMetrics(
+                    deadline=datetime.datetime.fromisoformat(
+                        "2025-01-01T00:00:00+00:00"
+                    ),
+                    initial_call_duration=datetime.timedelta(minutes=2),
+                ),
+            },
+            "foo",
+            True,
+            id="Aborted by initial duration",
+        ),
+    ],
+)
+def test_flaky_detector_should_abort_reruns(
+    metrics: typing.Dict[str, flaky_detection._TestMetrics],
+    test: str,
+    expected: bool,
+) -> None:
+    detector = InitializedFlakyDetector()
+    detector._test_metrics = metrics
+    assert detector.should_abort_reruns(test) == expected
