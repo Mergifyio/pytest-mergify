@@ -336,9 +336,7 @@ class FlakyDetector:
 
     def set_deadline(self) -> None:
         self._deadline = (
-            datetime.datetime.now(datetime.timezone.utc)
-            + self._context.existing_tests_mean_duration
-            + self._get_budget_duration()
+            datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
         )
 
     def set_test_deadline(
