@@ -263,3 +263,60 @@ def test_flaky_detector_should_abort_reruns(
     detector = InitializedFlakyDetector()
     detector._test_metrics = metrics
     assert detector.should_abort_reruns(test) == expected
+
+
+@freezegun.freeze_time(
+    time_to_freeze=datetime.datetime.fromisoformat("2025-01-01T00:00:00+00:00")
+)
+@pytest.mark.parametrize(
+    argnames=(
+        "context",
+        "mode",
+        "expected",
+    ),
+    argvalues=[
+        pytest.param(
+            _make_flaky_detection_context(
+                existing_tests_mean_duration_ms=10000,
+                existing_test_names=["foo", "bar"],
+                budget_ratio_for_new_tests=0.2,
+            ),
+            "new",
+            datetime.datetime.fromisoformat("2025-01-01T00:00:04+00:00"),
+            id="With `new` mode",
+        ),
+        pytest.param(
+            _make_flaky_detection_context(
+                existing_tests_mean_duration_ms=10000,
+                existing_test_names=["foo", "bar"],
+                budget_ratio_for_unhealthy_tests=0.2,
+            ),
+            "unhealthy",
+            datetime.datetime.fromisoformat("2025-01-01T00:00:04+00:00"),
+            id="With `unhealthy` mode",
+        ),
+        pytest.param(
+            _make_flaky_detection_context(
+                existing_tests_mean_duration_ms=1,
+                existing_test_names=["foo", "bar"],
+                budget_ratio_for_new_tests=0.2,
+                min_budget_duration_ms=1000,
+            ),
+            "new",
+            datetime.datetime.fromisoformat("2025-01-01T00:00:01+00:00"),
+            id="Use minimum budget duration",
+        ),
+    ],
+)
+def test_flaky_detector_set_deadline(
+    context: flaky_detection._FlakyDetectionContext,
+    mode: typing.Literal["new", "unhealthy"],
+    expected: datetime.datetime,
+) -> None:
+    detector = InitializedFlakyDetector()
+    detector._context = context
+    detector.mode = mode
+
+    detector.set_deadline()
+    assert detector._deadline is not None
+    assert detector._deadline == expected
