@@ -75,14 +75,6 @@ def test_flaky_detector_set_test_deadline() -> None:
     )
 
 
-@freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_duration_before_deadline() -> None:
-    detector = InitializedFlakyDetector()
-    detector._deadline = _NOW + datetime.timedelta(seconds=10)
-
-    assert detector._get_duration_before_deadline() == datetime.timedelta(seconds=10)
-
-
 def test_flaky_detector_try_fill_metrics_from_report() -> None:
     def make_report(
         nodeid: str, when: typing.Literal["setup", "call", "teardown"], duration: float
@@ -140,22 +132,18 @@ def test_flaky_detector_count_remaining_tests() -> None:
 @freezegun.freeze_time(_NOW)
 def test_flaky_detector_get_rerun_count_for_test() -> None:
     detector = InitializedFlakyDetector()
-    detector._context = _make_flaky_detection_context(
-        min_test_execution_count=5,
-        min_budget_duration_ms=4000,
-        max_test_execution_count=1000,
-    )
+    detector._context = _make_flaky_detection_context(max_test_execution_count=1000)
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
             initial_call_duration=datetime.timedelta(milliseconds=10),
             is_processed=True,
         ),
         "bar": flaky_detection._TestMetrics(
+            deadline=_NOW + datetime.timedelta(seconds=4),
             initial_call_duration=datetime.timedelta(milliseconds=100),
         ),
         "baz": flaky_detection._TestMetrics(),
     }
-    detector.set_deadline()
 
     assert detector.get_rerun_count_for_test("bar") == 20
 
@@ -164,42 +152,37 @@ def test_flaky_detector_get_rerun_count_for_test() -> None:
 def test_flaky_detector_get_rerun_count_for_test_with_slow_test() -> None:
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(
-        min_test_execution_count=5,
-        min_budget_duration_ms=500,
         max_test_execution_count=1000,
+        min_test_execution_count=5,
     )
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
             # Can't be reran 5 times within the budget.
+            deadline=_NOW + datetime.timedelta(seconds=4),
             initial_call_duration=datetime.timedelta(seconds=1),
         ),
         "bar": flaky_detection._TestMetrics(
             # This test should not be impacted by the previous one.
+            deadline=_NOW + datetime.timedelta(milliseconds=500),
             initial_call_duration=datetime.timedelta(milliseconds=1),
         ),
     }
-    detector.set_deadline()
 
     assert detector.get_rerun_count_for_test("foo") == 0
-
     assert detector.get_rerun_count_for_test("bar") == 500
 
 
 @freezegun.freeze_time(_NOW)
 def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
     detector = InitializedFlakyDetector()
-    detector._context = _make_flaky_detection_context(
-        min_test_execution_count=5,
-        min_budget_duration_ms=4000,
-        max_test_execution_count=1000,
-    )
+    detector._context = _make_flaky_detection_context(max_test_execution_count=1000)
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
             # Should only be reran 1000 times, freeing the rest of the budget for other tests.
+            deadline=_NOW + datetime.timedelta(seconds=4),
             initial_call_duration=datetime.timedelta(milliseconds=1),
         ),
     }
-    detector.set_deadline()
 
     assert detector.get_rerun_count_for_test("foo") == 1000
 
