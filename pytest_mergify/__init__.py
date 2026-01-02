@@ -138,14 +138,6 @@ Common issues:
             )
         self.has_error = False
 
-    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
-        if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
-
-            # Make sure to set the deadline after filtering so it's based on the
-            # actual tests of the current session.
-            self.mergify_ci.flaky_detector.set_global_deadline()
-
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
         self,
@@ -202,6 +194,18 @@ Common issues:
         # flow. Returning `True` means we took care of running the protocol.
         # See:
         # https://docs.pytest.org/en/7.1.x/how-to/writing_hook_functions.html#firstresult
+
+        # Initialize flaky detector on first test (works with both regular pytest and xdist)
+        # TODO(remyduthu): Explain why.
+        if (
+            self.mergify_ci.flaky_detector
+            and not self.mergify_ci.flaky_detector._global_deadline
+        ):
+            self.mergify_ci.flaky_detector.filter_context_tests_for_session(
+                item.session
+            )
+            self.mergify_ci.flaky_detector.set_global_deadline()
+
         if not self.tracer:
             return None
 

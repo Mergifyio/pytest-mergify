@@ -26,6 +26,7 @@ class InitializedFlakyDetector(flaky_detection.FlakyDetector):
         self.full_repository_name = ""
         self.mode = "new"
         self._test_metrics = {}
+        self.log_messages = []
 
     def __post_init__(self) -> None:
         pass
@@ -272,7 +273,7 @@ def test_flaky_detector_should_abort_reruns(
                 budget_ratio_for_new_tests=0.2,
             ),
             "new",
-            datetime.datetime.fromisoformat("2025-01-01T00:00:04+00:00"),
+            datetime.datetime.fromisoformat("2025-01-01T00:00:24+00:00"),
             id="With `new` mode",
         ),
         pytest.param(
@@ -282,7 +283,7 @@ def test_flaky_detector_should_abort_reruns(
                 budget_ratio_for_unhealthy_tests=0.2,
             ),
             "unhealthy",
-            datetime.datetime.fromisoformat("2025-01-01T00:00:04+00:00"),
+            datetime.datetime.fromisoformat("2025-01-01T00:00:24+00:00"),
             id="With `unhealthy` mode",
         ),
         pytest.param(
