@@ -140,10 +140,18 @@ Common issues:
 
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
+            self.mergify_ci.flaky_detector.filter_context_tests_for_session(
+                set([item.nodeid for item in session.items])
+            )
+            self.mergify_ci.flaky_detector.set_global_deadline()
 
-            # Make sure to set the deadline after filtering so it's based on the
-            # actual tests of the current session.
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_xdist_node_collection_finished(
+        self, node: typing.Any, ids: typing.List[str]
+    ) -> None:
+        """Called by pytest-xdist when a worker finishes collecting tests."""
+        if self.mergify_ci.flaky_detector:
+            self.mergify_ci.flaky_detector.filter_context_tests_for_session(set(ids))
             self.mergify_ci.flaky_detector.set_global_deadline()
 
     @pytest.hookimpl(hookwrapper=True)
