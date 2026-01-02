@@ -138,9 +138,15 @@ Common issues:
             )
         self.has_error = False
 
-    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
+    @pytest.hookimpl
+    def pytest_collection_modifyitems(
+        self,
+        session: _pytest.main.Session,
+        config: _pytest.config.Config,
+        items: typing.List[_pytest.nodes.Item],
+    ) -> None:
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
+            self.mergify_ci.flaky_detector.filter_context_tests_with_session(items)
 
             # Make sure to set the deadline after filtering so it's based on the
             # actual tests of the current session.
