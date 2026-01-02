@@ -105,7 +105,7 @@ class FlakyDetector:
     mode: typing.Literal["new", "unhealthy"]
 
     _context: _FlakyDetectionContext = dataclasses.field(init=False)
-    _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
+    _global_deadline: typing.Optional[datetime.datetime] = dataclasses.field(
         init=False, default=None
     )
     _test_metrics: typing.Dict[str, _TestMetrics] = dataclasses.field(
@@ -206,12 +206,10 @@ class FlakyDetector:
         if not metrics:
             return 0
 
-        budget_per_test = (
-            self._get_duration_before_deadline() / self._count_remaining_tests()
-        )
-
         result = self._get_normalized_rerun_count(
-            budget_per_test, metrics.initial_duration
+            budget_per_test=self._get_duration_before_test_deadline(test)
+            / self._count_remaining_tests(),
+            initial_duration=metrics.initial_duration,
         )
 
         metrics.is_processed = True
@@ -334,8 +332,8 @@ class FlakyDetector:
 
         return result
 
-    def set_deadline(self) -> None:
-        self._deadline = (
+    def set_global_deadline(self) -> None:
+        self._global_deadline = (
             datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
         )
 
@@ -346,7 +344,7 @@ class FlakyDetector:
         if not metrics:
             return
 
-        metrics.deadline = self._deadline
+        metrics.deadline = self._global_deadline
 
         if not timeout:
             return
@@ -403,9 +401,16 @@ class FlakyDetector:
         self._suspended_item_finalizers.clear()
 
     def _count_remaining_tests(self) -> int:
-        return sum(
-            1 for metrics in self._test_metrics.values() if not metrics.is_processed
-        )
+        if self.mode == "new":
+            tests = self._context.existing_test_names
+        elif self.mode == "unhealthy":
+            tests = self._context.unhealthy_test_names
+
+        already_processed_tests = {
+            test for test, metrics in self._test_metrics.items() if metrics.is_processed
+        }
+
+        return max(len(tests) - len(already_processed_tests), 1)
 
     def _get_budget_duration(self) -> datetime.timedelta:
         total_duration = self._context.existing_tests_mean_duration * len(
@@ -420,11 +425,12 @@ class FlakyDetector:
         # NOTE(remyduthu): We want to ensure a minimum duration even for very short test suites.
         return max(ratio * total_duration, self._context.min_budget_duration)
 
-    def _get_duration_before_deadline(self) -> datetime.timedelta:
-        if not self._deadline:
+    def _get_duration_before_test_deadline(self, test: str) -> datetime.timedelta:
+        metrics = self._test_metrics[test]
+        if not metrics or not metrics.deadline:
             return datetime.timedelta()
 
         return max(
-            self._deadline - datetime.datetime.now(datetime.timezone.utc),
+            metrics.deadline - datetime.datetime.now(datetime.timezone.utc),
             datetime.timedelta(),
         )
