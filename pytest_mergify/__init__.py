@@ -138,12 +138,19 @@ Common issues:
             )
         self.has_error = False
 
-    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
-        if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
+    def pytest_runtestloop(self, session: _pytest.main.Session) -> None:
+        """
+        Called right before the test loop starts.
 
-            # Make sure to set the deadline after filtering so it's based on the
-            # actual tests of the current session.
+        This is the ideal place to filter tests and set the deadline because:
+        - Collection is complete, so session.items contains all tests
+        - Tests haven't started yet, so the deadline will be accurate
+        - Works consistently with both regular pytest and pytest-xdist
+        """
+        if self.mergify_ci.flaky_detector:
+            self.mergify_ci.flaky_detector.filter_context_tests_for_session(
+                {item.nodeid for item in session.items}
+            )
             self.mergify_ci.flaky_detector.set_global_deadline()
 
     @pytest.hookimpl(hookwrapper=True)
