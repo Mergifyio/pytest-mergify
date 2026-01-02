@@ -138,6 +138,7 @@ Common issues:
             )
         self.has_error = False
 
+    @pytest.hookimpl(trylast=True)
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
             self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)

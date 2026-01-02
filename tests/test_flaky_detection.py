@@ -26,6 +26,7 @@ class InitializedFlakyDetector(flaky_detection.FlakyDetector):
         self.full_repository_name = ""
         self.mode = "new"
         self._test_metrics = {}
+        self.log_messages = []
 
     def __post_init__(self) -> None:
         pass

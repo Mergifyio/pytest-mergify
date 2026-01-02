@@ -143,10 +143,16 @@ class FlakyDetector:
     https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L503-L542
     """
 
+    log_messages: typing.List[str] = dataclasses.field(init=False, default_factory=list)
+
     def __post_init__(self) -> None:
+        self.log_messages.append("Initializing FlakyDetector")
         self._context = self._fetch_context()
 
     def _fetch_context(self) -> _FlakyDetectionContext:
+        self.log_messages.append(
+            f"Fetching flaky detection context for repository '{self.full_repository_name}' in mode '{self.mode}'"
+        )
         owner, repository_name = utils.split_full_repo_name(
             self.full_repository_name,
         )
@@ -165,9 +171,16 @@ class FlakyDetector:
                 f"No existing tests found for '{self.full_repository_name}' repository",
             )
 
+        self.log_messages.append(
+            f"Fetched context: {len(result.existing_test_names)} existing tests, {len(result.unhealthy_test_names)} unhealthy tests"
+        )
         return result
 
     def try_fill_metrics_from_report(self, report: _pytest.reports.TestReport) -> bool:
+        self.log_messages.append(
+            f"Considering test '{report.nodeid}' with outcome '{report.outcome}'"
+        )
+
         if report.outcome not in ["failed", "passed", "rerun"]:
             return False
 
@@ -187,10 +200,26 @@ class FlakyDetector:
         metrics = self._test_metrics.setdefault(test, _TestMetrics())
         metrics.fill_from_report(report)
 
+        self.log_messages.append(
+            f"Filled metrics for test '{report.nodeid}': {metrics}"
+        )
+
         return True
 
     def filter_context_tests_with_session(self, session: _pytest.main.Session) -> None:
         session_tests = {item.nodeid for item in session.items}
+
+        self.log_messages.append(
+            f"Session has {len(session_tests)} tests: {session_tests}"
+        )
+
+        original_existing_count = len(self._context.existing_test_names)
+        original_unhealthy_count = len(self._context.unhealthy_test_names)
+
+        self.log_messages.append(
+            f"Before filtering: {original_existing_count} existing tests, {original_unhealthy_count} unhealthy tests"
+        )
+
         self._context.existing_test_names = [
             test for test in self._context.existing_test_names if test in session_tests
         ]
@@ -198,28 +227,47 @@ class FlakyDetector:
             test for test in self._context.unhealthy_test_names if test in session_tests
         ]
 
+        self.log_messages.append(
+            f"After filtering: {len(self._context.existing_test_names)} existing tests, {len(self._context.unhealthy_test_names)} unhealthy tests"
+        )
+
     def is_test_tracked(self, test: str) -> bool:
-        return test in self._test_metrics
+        result = test in self._test_metrics
+        self.log_messages.append(
+            f"Test '{test}' is {'tracked' if result else 'not tracked'}"
+        )
+        return result
 
     def get_rerun_count_for_test(self, test: str) -> int:
         metrics = self._test_metrics.get(test)
         if not metrics:
+            self.log_messages.append(f"No metrics found for test '{test}'")
             return 0
 
+        budget_per_test = (
+            self._get_duration_before_test_deadline(test)
+            / self._count_remaining_tests()
+        )
         result = self._get_normalized_rerun_count(
-            budget_per_test=self._get_duration_before_test_deadline(test)
-            / self._count_remaining_tests(),
+            budget_per_test=budget_per_test,
             initial_duration=metrics.initial_duration,
         )
 
         metrics.is_processed = True
         metrics.scheduled_rerun_count = result
 
+        self.log_messages.append(
+            f"Scheduled {result} reruns for test '{test}' with budget per test {budget_per_test}"
+        )
+
         return result
 
     def _get_normalized_rerun_count(
         self, budget_per_test: datetime.timedelta, initial_duration: datetime.timedelta
     ) -> int:
+        self.log_messages.append(
+            f"Calculating normalized rerun count with budget {budget_per_test} and initial duration {initial_duration}"
+        )
         if initial_duration == datetime.timedelta():
             count = self._context.max_test_execution_count
         else:
@@ -228,8 +276,9 @@ class FlakyDetector:
         result = min(count, self._context.max_test_execution_count)
 
         if result < self._context.min_test_execution_count:
-            return 0
+            result = 0
 
+        self.log_messages.append(f"Normalized rerun count: {result}")
         return result
 
     def should_abort_reruns(self, test: str) -> bool:
@@ -240,16 +289,25 @@ class FlakyDetector:
         complete another full test execution. This prevents starting a rerun
         that would exceed the deadline and potentially timeout.
         """
+        self.log_messages.append(f"Checking if reruns should abort for test '{test}'")
         metrics = self._test_metrics.get(test)
         if not metrics or not metrics.deadline:
+            self.log_messages.append(
+                f"No deadline or metrics for test '{test}', not aborting"
+            )
             return False
 
         projected_completion = (
             datetime.datetime.now(datetime.timezone.utc) + metrics.initial_duration
         )
-        return projected_completion >= metrics.deadline
+        result = projected_completion >= metrics.deadline
+        self.log_messages.append(
+            f"Projected completion {projected_completion}, deadline {metrics.deadline}, abort: {result}"
+        )
+        return result
 
     def make_report(self) -> str:
+        self.log_messages.append("Generating flaky detection report")
         result = "🐛 Flaky detection"
         if self._over_length_tests:
             result += (
@@ -330,6 +388,11 @@ class FlakyDetector:
                 f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
             )
 
+        if self.log_messages:
+            result += f"{os.linesep}Log Messages:"
+            for message in self.log_messages:
+                result += f"{os.linesep}- {message}"
+
         return result
 
     def set_global_deadline(self) -> None:
@@ -337,14 +400,22 @@ class FlakyDetector:
             datetime.datetime.now(datetime.timezone.utc) + self._get_budget_duration()
         )
 
+        self.log_messages.append(
+            f"Global deadline set to {self._global_deadline.isoformat()}"
+        )
+
     def set_test_deadline(
         self, test: str, timeout: typing.Optional[datetime.timedelta] = None
     ) -> None:
         metrics = self._test_metrics.get(test)
         if not metrics:
+            self.log_messages.append(f"No metrics found for test '{test}'")
             return
 
         metrics.deadline = self._global_deadline
+        self.log_messages.append(
+            f"Set deadline for test '{test}' to global deadline: {self._global_deadline}"
+        )
 
         if not timeout:
             return
@@ -353,22 +424,34 @@ class FlakyDetector:
         # the CI.
         safe_timeout = timeout * 0.9
         timeout_deadline = datetime.datetime.now(datetime.timezone.utc) + safe_timeout
+        self.log_messages.append(
+            f"Calculated safe timeout deadline for test '{test}': {timeout_deadline}"
+        )
+
         if not metrics.deadline or timeout_deadline < metrics.deadline:
             metrics.deadline = timeout_deadline
             metrics.prevented_timeout = True
+            self.log_messages.append(
+                f"Updated deadline for test '{test}' to timeout deadline and set prevented_timeout"
+            )
 
     def is_last_rerun_for_test(self, test: str) -> bool:
         "Returns true if the given test exists and this is its last rerun."
-
+        self.log_messages.append(
+            f"Checking if this is the last rerun for test '{test}'"
+        )
         metrics = self._test_metrics.get(test)
         if not metrics:
+            self.log_messages.append(f"No metrics found for test '{test}'")
             return False
 
-        return (
+        result = (
             metrics.scheduled_rerun_count != 0
             and metrics.scheduled_rerun_count + 1  # Add the initial execution.
             == metrics.rerun_count
         )
+        self.log_messages.append(f"Is last rerun for test '{test}': {result}")
+        return result
 
     def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:
         """
@@ -376,8 +459,9 @@ class FlakyDetector:
 
         See: https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L532-L538
         """
-
+        self.log_messages.append(f"Suspending item finalizers for item '{item.nodeid}'")
         if item not in item.session._setupstate.stack:
+            self.log_messages.append(f"Item '{item.nodeid}' not in setupstate stack")
             return
 
         for stacked_item in list(item.session._setupstate.stack.keys()):
@@ -396,7 +480,7 @@ class FlakyDetector:
 
         See: https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L540-L542
         """
-
+        self.log_messages.append(f"Restoring item finalizers for item '{item.nodeid}'")
         item.session._setupstate.stack.update(self._suspended_item_finalizers)
         self._suspended_item_finalizers.clear()
 
@@ -410,27 +494,48 @@ class FlakyDetector:
             test for test, metrics in self._test_metrics.items() if metrics.is_processed
         }
 
-        return max(len(tests) - len(already_processed_tests), 1)
+        remaining = max(len(tests) - len(already_processed_tests), 1)
+        self.log_messages.append(
+            f"Counting remaining tests in {self.mode} mode: {len(tests)} total, {len(already_processed_tests)} processed, {remaining} remaining"
+        )
+
+        return remaining
 
     def _get_budget_duration(self) -> datetime.timedelta:
         total_duration = self._context.existing_tests_mean_duration * len(
             self._context.existing_test_names
+        )
+        self.log_messages.append(
+            f"Calculated total duration for existing tests: {total_duration}"
         )
 
         if self.mode == "new":
             ratio = self._context.budget_ratio_for_new_tests
         elif self.mode == "unhealthy":
             ratio = self._context.budget_ratio_for_unhealthy_tests
+        self.log_messages.append(f"Using budget ratio {ratio} for mode '{self.mode}'")
 
         # NOTE(remyduthu): We want to ensure a minimum duration even for very short test suites.
-        return max(ratio * total_duration, self._context.min_budget_duration)
+        budget_duration = max(ratio * total_duration, self._context.min_budget_duration)
+        self.log_messages.append(
+            f"Budget duration: {budget_duration} (max of {ratio * total_duration} and {self._context.min_budget_duration})"
+        )
+        return budget_duration
 
     def _get_duration_before_test_deadline(self, test: str) -> datetime.timedelta:
+        self.log_messages.append(f"Getting duration before deadline for test '{test}'")
         metrics = self._test_metrics[test]
         if not metrics or not metrics.deadline:
+            self.log_messages.append(
+                f"No deadline set for test '{test}', returning zero duration"
+            )
             return datetime.timedelta()
 
-        return max(
+        duration = max(
             metrics.deadline - datetime.datetime.now(datetime.timezone.utc),
             datetime.timedelta(),
         )
+        self.log_messages.append(
+            f"Duration before deadline for test '{test}': {duration}"
+        )
+        return duration
