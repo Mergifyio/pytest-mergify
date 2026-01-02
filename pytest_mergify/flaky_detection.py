@@ -405,9 +405,16 @@ class FlakyDetector:
         self._suspended_item_finalizers.clear()
 
     def _count_remaining_tests(self) -> int:
-        return sum(
-            1 for metrics in self._test_metrics.values() if not metrics.is_processed
-        )
+        if self.mode == "new":
+            tests = self._context.existing_test_names
+        elif self.mode == "unhealthy":
+            tests = self._context.unhealthy_test_names
+
+        already_processed_tests = {
+            test for test, metrics in self._test_metrics.items() if metrics.is_processed
+        }
+
+        return max(len(tests) - len(already_processed_tests), 1)
 
     def _get_budget_duration(self) -> datetime.timedelta:
         total_duration = self._context.existing_tests_mean_duration * len(
