@@ -138,9 +138,6 @@ Common issues:
             )
         self.has_error = False
 
-        if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.set_deadline()
-
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
             self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
@@ -204,16 +201,15 @@ Common issues:
         if not self.tracer:
             return None
 
-        attributes = self._get_item_attributes(item)
-        context = opentelemetry.trace.set_span_in_context(self.session_span)
-
-        # Execute the initial protocol to register its duration, which lets us
-        # calculate the number of reruns.
         with self.tracer.start_as_current_span(
-            item.nodeid, attributes=attributes, context=context
+            name=item.nodeid,
+            context=opentelemetry.trace.set_span_in_context(self.session_span),
+            attributes=self._get_item_attributes(item),
         ) as current_span:
             distinct_outcomes = set()
 
+            # Execute the initial protocol to register its duration, which lets
+            # us calculate the number of reruns.
             for report in _pytest.runner.runtestprotocol(
                 item=item, nextitem=nextitem, log=True
             ):
@@ -222,22 +218,15 @@ Common issues:
             if not self.mergify_ci.flaky_detector:
                 return True
 
-            timeout_seconds = pytest_timeout._get_item_settings(item).timeout
-
             self.mergify_ci.flaky_detector.set_test_deadline(
                 test=item.nodeid,
                 timeout=datetime.timedelta(seconds=timeout_seconds)
-                if timeout_seconds
+                if (timeout_seconds := pytest_timeout._get_item_settings(item).timeout)
                 else None,
             )
 
             rerun_count = 0
-            for _ in range(
-                self.mergify_ci.flaky_detector.get_rerun_count_for_test(item.nodeid)
-            ):
-                if self.mergify_ci.flaky_detector.should_abort_reruns(item.nodeid):
-                    break
-
+            while self.mergify_ci.flaky_detector.can_rerun_test(item.nodeid):
                 for report in self._reruntestprotocol(item, nextitem):
                     distinct_outcomes.add(report.outcome)
 
@@ -315,7 +304,7 @@ Common issues:
 
         # The goal here is to keep only function-scoped finalizers during
         # reruns and restore higher-scoped finalizers only on the last one.
-        if self.mergify_ci.flaky_detector.should_abort_reruns(
+        if not self.mergify_ci.flaky_detector.can_rerun_test(
             item.nodeid
         ) or self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)

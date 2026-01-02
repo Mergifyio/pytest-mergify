@@ -61,7 +61,7 @@ class _TestMetrics:
 
     # NOTE(remyduthu): We need this flag because we may have processed a test
     # without scheduling reruns for it (e.g., because it was too slow).
-    is_processed: bool = dataclasses.field(default=False)
+    has_been_scheduled: bool = dataclasses.field(default=False)
 
     rerun_count: int = dataclasses.field(default=0)
     "Represents the number of times the test has been rerun so far."
@@ -105,9 +105,6 @@ class FlakyDetector:
     mode: typing.Literal["new", "unhealthy"]
 
     _context: _FlakyDetectionContext = dataclasses.field(init=False)
-    _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
-        init=False, default=None
-    )
     _test_metrics: typing.Dict[str, _TestMetrics] = dataclasses.field(
         init=False, default_factory=dict
     )
@@ -201,23 +198,39 @@ class FlakyDetector:
     def is_test_tracked(self, test: str) -> bool:
         return test in self._test_metrics
 
-    def get_rerun_count_for_test(self, test: str) -> int:
+    def can_rerun_test(self, test: str) -> bool:
         metrics = self._test_metrics.get(test)
         if not metrics:
-            return 0
+            return False
 
-        budget_per_test = (
-            self._get_duration_before_deadline() / self._count_remaining_tests()
+        if not metrics.has_been_scheduled:
+            self._schedule_test_reruns(test)
+
+        # Check if we've exhausted scheduled reruns
+        # rerun_count includes the initial execution, so we need to subtract 1
+        if metrics.rerun_count >= metrics.scheduled_rerun_count + 1:
+            return False
+
+        # Check if we have enough time before deadline
+        if not metrics.deadline:
+            return False  # Never rerun tests without deadline.
+
+        projected_completion = (
+            datetime.datetime.now(datetime.timezone.utc) + metrics.initial_duration
         )
+        return projected_completion < metrics.deadline
 
-        result = self._get_normalized_rerun_count(
-            budget_per_test, metrics.initial_duration
+    def _schedule_test_reruns(self, test: str) -> None:
+        metrics = self._test_metrics.get(test)
+        if not metrics:
+            return
+
+        metrics.scheduled_rerun_count = self._get_normalized_rerun_count(
+            budget_per_test=self._get_duration_before_test_deadline(test)
+            / self._count_remaining_tests(),
+            initial_duration=metrics.initial_duration,
         )
-
-        metrics.is_processed = True
-        metrics.scheduled_rerun_count = result
-
-        return result
+        metrics.has_been_scheduled = True
 
     def _get_normalized_rerun_count(
         self, budget_per_test: datetime.timedelta, initial_duration: datetime.timedelta
@@ -233,23 +246,6 @@ class FlakyDetector:
             return 0
 
         return result
-
-    def should_abort_reruns(self, test: str) -> bool:
-        """
-        Determines if a test can be rerun within its deadline.
-
-        We must ensure there's enough time remaining before the deadline to
-        complete another full test execution. This prevents starting a rerun
-        that would exceed the deadline and potentially timeout.
-        """
-        metrics = self._test_metrics.get(test)
-        if not metrics or not metrics.deadline:
-            return False
-
-        projected_completion = (
-            datetime.datetime.now(datetime.timezone.utc) + metrics.initial_duration
-        )
-        return projected_completion >= metrics.deadline
 
     def make_report(self) -> str:
         result = "🐛 Flaky detection"
@@ -334,13 +330,6 @@ class FlakyDetector:
 
         return result
 
-    def set_deadline(self) -> None:
-        self._deadline = (
-            datetime.datetime.now(datetime.timezone.utc)
-            + self._context.existing_tests_mean_duration
-            + self._get_budget_duration()
-        )
-
     def set_test_deadline(
         self, test: str, timeout: typing.Optional[datetime.timedelta] = None
     ) -> None:
@@ -348,7 +337,19 @@ class FlakyDetector:
         if not metrics:
             return
 
-        metrics.deadline = self._deadline
+        # Calculate per-test deadline based on remaining budget
+        total_budget = self._get_budget_duration()
+        time_spent = sum(
+            (m.total_duration for m in self._test_metrics.values()),
+            datetime.timedelta(),
+        )
+        remaining_budget = max(total_budget - time_spent, datetime.timedelta())
+        remaining_tests = self._count_remaining_tests()
+        per_test_budget = remaining_budget / remaining_tests
+
+        metrics.deadline = (
+            datetime.datetime.now(datetime.timezone.utc) + per_test_budget
+        )
 
         if not timeout:
             return
@@ -400,14 +401,22 @@ class FlakyDetector:
 
         See: https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L540-L542
         """
-
         item.session._setupstate.stack.update(self._suspended_item_finalizers)
         self._suspended_item_finalizers.clear()
 
     def _count_remaining_tests(self) -> int:
-        return sum(
-            1 for metrics in self._test_metrics.values() if not metrics.is_processed
-        )
+        if self.mode == "new":
+            tests = self._context.existing_test_names
+        elif self.mode == "unhealthy":
+            tests = self._context.unhealthy_test_names
+
+        already_processed_tests = {
+            test
+            for test, metrics in self._test_metrics.items()
+            if metrics.has_been_scheduled
+        }
+
+        return max(len(tests) - len(already_processed_tests), 1)
 
     def _get_budget_duration(self) -> datetime.timedelta:
         total_duration = self._context.existing_tests_mean_duration * len(
@@ -422,11 +431,12 @@ class FlakyDetector:
         # NOTE(remyduthu): We want to ensure a minimum duration even for very short test suites.
         return max(ratio * total_duration, self._context.min_budget_duration)
 
-    def _get_duration_before_deadline(self) -> datetime.timedelta:
-        if not self._deadline:
+    def _get_duration_before_test_deadline(self, test: str) -> datetime.timedelta:
+        metrics = self._test_metrics[test]
+        if not metrics or not metrics.deadline:
             return datetime.timedelta()
 
         return max(
-            self._deadline - datetime.datetime.now(datetime.timezone.utc),
+            metrics.deadline - datetime.datetime.now(datetime.timezone.utc),
             datetime.timedelta(),
         )
