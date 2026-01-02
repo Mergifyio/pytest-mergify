@@ -142,8 +142,7 @@ Common issues:
         if self.mergify_ci.flaky_detector:
             self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
 
-            # Make sure to set the deadline after filtering so it's based on the
-            # actual tests of the current session.
+            # Set the deadline just after filtering so it's only based on collected tests.
             self.mergify_ci.flaky_detector.set_global_deadline()
 
     @pytest.hookimpl(hookwrapper=True)
