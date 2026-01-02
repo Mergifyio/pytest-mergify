@@ -138,7 +138,12 @@ Common issues:
             )
         self.has_error = False
 
-    def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_collection(
+        self, session: _pytest.main.Session
+    ) -> typing.Generator[None, None, None]:
+        yield
+
         if self.mergify_ci.flaky_detector:
             self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
 
