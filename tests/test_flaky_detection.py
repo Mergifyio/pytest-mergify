@@ -129,6 +129,10 @@ def test_flaky_detector_try_fill_metrics_from_report() -> None:
 
 def test_flaky_detector_count_remaining_tests() -> None:
     detector = InitializedFlakyDetector()
+    detector.mode = "new"
+    detector._context = _make_flaky_detection_context(
+        existing_test_names=["foo", "bar", "baz"]
+    )
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(is_processed=True),
         "bar": flaky_detection._TestMetrics(),
@@ -141,6 +145,7 @@ def test_flaky_detector_count_remaining_tests() -> None:
 def test_flaky_detector_get_rerun_count_for_test() -> None:
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(
+        existing_test_names=["foo", "bar", "baz"],
         min_test_execution_count=5,
         min_budget_duration_ms=4000,
         max_test_execution_count=1000,
