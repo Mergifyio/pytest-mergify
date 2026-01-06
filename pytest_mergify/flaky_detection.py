@@ -96,6 +96,15 @@ class _TestMetrics:
     def expected_duration(self) -> datetime.timedelta:
         return self.initial_duration * self.scheduled_rerun_count
 
+    def remaining_time(self) -> datetime.timedelta:
+        if not self.deadline:
+            return datetime.timedelta()
+
+        return max(
+            self.deadline - datetime.datetime.now(datetime.timezone.utc),
+            datetime.timedelta(),
+        )
+
 
 @dataclasses.dataclass
 class FlakyDetector:
@@ -206,12 +215,9 @@ class FlakyDetector:
         if not metrics:
             return 0
 
-        budget_per_test = (
-            self._get_duration_before_deadline() / self._count_remaining_tests()
-        )
-
         result = self._get_normalized_rerun_count(
-            budget_per_test, metrics.initial_duration
+            budget_per_test=metrics.remaining_time() / self._count_remaining_tests(),
+            initial_duration=metrics.initial_duration,
         )
 
         metrics.is_processed = True
@@ -428,12 +434,3 @@ class FlakyDetector:
 
         # NOTE(remyduthu): We want to ensure a minimum duration even for very short test suites.
         return max(ratio * total_duration, self._context.min_budget_duration)
-
-    def _get_duration_before_deadline(self) -> datetime.timedelta:
-        if not self._deadline:
-            return datetime.timedelta()
-
-        return max(
-            self._deadline - datetime.datetime.now(datetime.timezone.utc),
-            datetime.timedelta(),
-        )
