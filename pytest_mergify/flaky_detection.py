@@ -114,9 +114,6 @@ class FlakyDetector:
     mode: typing.Literal["new", "unhealthy"]
 
     _context: _FlakyDetectionContext = dataclasses.field(init=False)
-    _deadline: typing.Optional[datetime.datetime] = dataclasses.field(
-        init=False, default=None
-    )
     _test_metrics: typing.Dict[str, _TestMetrics] = dataclasses.field(
         init=False, default_factory=dict
     )
@@ -281,7 +278,7 @@ class FlakyDetector:
             metrics.total_duration.total_seconds()
             for metrics in self._test_metrics.values()
         )
-        budget_duration_seconds = self._get_budget_duration().total_seconds()
+        budget_duration_seconds = self._get_available_budget_duration().total_seconds()
         result += (
             f"{os.linesep}- Used {total_rerun_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
             f"({total_rerun_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
@@ -340,13 +337,6 @@ class FlakyDetector:
 
         return result
 
-    def set_deadline(self) -> None:
-        self._deadline = (
-            datetime.datetime.now(datetime.timezone.utc)
-            + self._context.existing_tests_mean_duration
-            + self._get_budget_duration()
-        )
-
     def set_test_deadline(
         self, test: str, timeout: typing.Optional[datetime.timedelta] = None
     ) -> None:
@@ -354,7 +344,10 @@ class FlakyDetector:
         if not metrics:
             return
 
-        metrics.deadline = self._deadline
+        # Distribute remaining budget equally across remaining tests.
+        metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
+            self._get_remaining_budget_duration() / self._count_remaining_tests()
+        )
 
         if not timeout:
             return
@@ -422,7 +415,7 @@ class FlakyDetector:
 
         return max(len(tests) - len(already_processed_tests), 1)
 
-    def _get_budget_duration(self) -> datetime.timedelta:
+    def _get_available_budget_duration(self) -> datetime.timedelta:
         total_duration = self._context.existing_tests_mean_duration * len(
             self._context.existing_test_names
         )
@@ -432,5 +425,17 @@ class FlakyDetector:
         elif self.mode == "unhealthy":
             ratio = self._context.budget_ratio_for_unhealthy_tests
 
-        # NOTE(remyduthu): We want to ensure a minimum duration even for very short test suites.
+        # We want to ensure a minimum duration even for very short test suites.
         return max(ratio * total_duration, self._context.min_budget_duration)
+
+    def _get_used_budget_duration(self) -> datetime.timedelta:
+        return sum(
+            (metrics.total_duration for metrics in self._test_metrics.values()),
+            datetime.timedelta(),
+        )
+
+    def _get_remaining_budget_duration(self) -> datetime.timedelta:
+        return max(
+            self._get_available_budget_duration() - self._get_used_budget_duration(),
+            datetime.timedelta(),
+        )
