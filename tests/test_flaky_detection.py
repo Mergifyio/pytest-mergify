@@ -196,7 +196,7 @@ def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
             },
             "foo",
             False,
-            id="Not aborted",
+            id="Not exceeded",
         ),
         pytest.param(
             {
@@ -209,7 +209,7 @@ def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
             },
             "foo",
             True,
-            id="Aborted by deadline",
+            id="Exceeded by deadline",
         ),
         pytest.param(
             {
@@ -222,18 +222,18 @@ def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
             },
             "foo",
             True,
-            id="Aborted by initial duration",
+            id="Exceeded by initial duration",
         ),
     ],
 )
-def test_flaky_detector_should_abort_reruns(
+def test_flaky_detector_will_exceed_test_deadline(
     metrics: typing.Dict[str, flaky_detection._TestMetrics],
     test: str,
     expected: bool,
 ) -> None:
     detector = InitializedFlakyDetector()
     detector._test_metrics = metrics
-    assert detector.should_abort_reruns(test) == expected
+    assert detector.will_exceed_test_deadline(test) == expected
 
 
 @pytest.mark.parametrize(
