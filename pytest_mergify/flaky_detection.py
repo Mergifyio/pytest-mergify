@@ -360,19 +360,6 @@ class FlakyDetector:
             metrics.deadline = timeout_deadline
             metrics.prevented_timeout = True
 
-    def is_last_rerun_for_test(self, test: str) -> bool:
-        "Returns true if the given test exists and this is its last rerun."
-
-        metrics = self._test_metrics.get(test)
-        if not metrics:
-            return False
-
-        return (
-            metrics.scheduled_rerun_count != 0
-            and metrics.scheduled_rerun_count + 1  # Add the initial execution.
-            == metrics.rerun_count
-        )
-
     def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:
         """
         Suspend all finalizers except the ones at the function-level.
