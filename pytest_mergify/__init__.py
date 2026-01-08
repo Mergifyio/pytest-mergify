@@ -215,7 +215,10 @@ Common issues:
             ):
                 distinct_outcomes.add(report.outcome)
 
-            if not self.mergify_ci.flaky_detector:
+            if (
+                not self.mergify_ci.flaky_detector
+                or not self.mergify_ci.flaky_detector.is_rerunning_test(item.nodeid)
+            ):
                 return True
 
             self.mergify_ci.flaky_detector.set_test_deadline(
@@ -225,15 +228,15 @@ Common issues:
                 else None,
             )
 
+            if self.mergify_ci.flaky_detector.is_test_too_slow(item.nodeid):
+                # We won't be able to detect flakiness if the test is too slow,
+                # so we stop here.
+                return True
+
             rerun_count = 0
-            scheduled_rerun_count = (
-                self.mergify_ci.flaky_detector.get_rerun_count_for_test(item.nodeid)
-            )
-            for _ in range(scheduled_rerun_count):
+            while not item.keywords.get("is_last_rerun"):
                 item.keywords["is_last_rerun"] = (
-                    rerun_count + 1 == scheduled_rerun_count
-                ) or self.mergify_ci.flaky_detector.will_exceed_test_deadline(
-                    item.nodeid
+                    self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid)
                 )
 
                 # Always execute a last rerun before stopping to properly
@@ -242,9 +245,6 @@ Common issues:
                     distinct_outcomes.add(report.outcome)
 
                 rerun_count += 1
-
-                if item.keywords.get("is_last_rerun"):
-                    break
 
             if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
                 current_span.set_attribute("cicd.test.flaky", True)
@@ -310,10 +310,10 @@ Common issues:
         self,
         item: _pytest.nodes.Item,
     ) -> None:
-        if not self.mergify_ci.flaky_detector:
-            return
-
-        if not self.mergify_ci.flaky_detector.is_test_tracked(item.nodeid):
+        if (
+            not self.mergify_ci.flaky_detector
+            or not self.mergify_ci.flaky_detector.is_rerunning_test(item.nodeid)
+        ):
             return
 
         # The goal here is to keep only function-scoped finalizers during

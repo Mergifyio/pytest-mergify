@@ -587,7 +587,7 @@ def test_flaky_detection_budget_deadline_stops_reruns(
     result.assert_outcomes(passed=11)
 
     assert re.search(
-        r"'test_flaky_detection_budget_deadline_stops_reruns\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",
+        r"'test_flaky_detection_budget_deadline_stops_reruns\.py::test_new' has been tested 10 times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)",
         result.stdout.str(),
     )
 
