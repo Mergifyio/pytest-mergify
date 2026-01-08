@@ -237,7 +237,7 @@ class FlakyDetector:
 
         return result
 
-    def should_abort_reruns(self, test: str) -> bool:
+    def will_exceed_test_deadline(self, test: str) -> bool:
         """
         Determines if a test can be rerun within its deadline.
 

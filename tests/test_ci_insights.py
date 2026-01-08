@@ -557,7 +557,7 @@ def test_flaky_detection_budget_deadline_stops_reruns(
 
             # Simulate a slow execution that reaches the deadline.
             if not self.deadline_patched and self.execution_count == 10:
-                # Set the deadline in the past to stop immediately.
+                # Set the deadline in the past to stop after one last rerun.
                 plugin.mergify_ci.flaky_detector._test_metrics[
                     "test_flaky_detection_budget_deadline_stops_reruns.py::test_new"
                 ].deadline = datetime.datetime.now(
@@ -583,8 +583,8 @@ def test_flaky_detection_budget_deadline_stops_reruns(
     # We should have:
     # - 1 execution of `test_existing`,
     # - 1 initial execution of `test_new`,
-    # - Only 8 reruns of `test_new` before the deadline is reached.
-    result.assert_outcomes(passed=10)
+    # - Only 9 reruns of `test_new` before the deadline is reached.
+    result.assert_outcomes(passed=11)
 
     assert re.search(
         r"'test_flaky_detection_budget_deadline_stops_reruns\.py::test_new' has been tested only \d+ times instead of \d+ times to avoid exceeding the budget",

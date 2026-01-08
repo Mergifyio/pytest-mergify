@@ -226,16 +226,25 @@ Common issues:
             )
 
             rerun_count = 0
-            for _ in range(
+            scheduled_rerun_count = (
                 self.mergify_ci.flaky_detector.get_rerun_count_for_test(item.nodeid)
-            ):
-                if self.mergify_ci.flaky_detector.should_abort_reruns(item.nodeid):
-                    break
+            )
+            for _ in range(scheduled_rerun_count):
+                item.keywords["is_last_rerun"] = (
+                    rerun_count + 1 == scheduled_rerun_count
+                ) or self.mergify_ci.flaky_detector.will_exceed_test_deadline(
+                    item.nodeid
+                )
 
+                # Always execute a last rerun before stopping to properly
+                # restore finalizers. Otherwise, it can lead to resource leaks.
                 for report in self._reruntestprotocol(item, nextitem):
                     distinct_outcomes.add(report.outcome)
 
                 rerun_count += 1
+
+                if item.keywords.get("is_last_rerun"):
+                    break
 
             if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
                 current_span.set_attribute("cicd.test.flaky", True)
@@ -309,9 +318,7 @@ Common issues:
 
         # The goal here is to keep only function-scoped finalizers during
         # reruns and restore higher-scoped finalizers only on the last one.
-        if self.mergify_ci.flaky_detector.should_abort_reruns(
-            item.nodeid
-        ) or self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid):
+        if item.keywords.get("is_last_rerun"):
             self.mergify_ci.flaky_detector.restore_item_finalizers(item)
         else:
             self.mergify_ci.flaky_detector.suspend_item_finalizers(item)
