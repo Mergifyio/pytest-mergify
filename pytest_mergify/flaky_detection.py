@@ -246,14 +246,13 @@ class FlakyDetector:
 
             return result
 
-        total_rerun_duration_seconds = sum(
-            metrics.total_duration.total_seconds()
-            for metrics in self._test_metrics.values()
+        available_budget_duration_seconds = (
+            self._get_available_budget_duration().total_seconds()
         )
-        budget_duration_seconds = self._get_available_budget_duration().total_seconds()
+        used_budget_duration_seconds = self._get_used_budget_duration().total_seconds()
         result += (
-            f"{os.linesep}- Used {total_rerun_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
-            f"({total_rerun_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+            f"{os.linesep}- Used {used_budget_duration_seconds / available_budget_duration_seconds * 100:.2f} % of the budget "
+            f"({used_budget_duration_seconds:.2f} s/{available_budget_duration_seconds:.2f} s)"
         )
 
         result += (
@@ -272,8 +271,8 @@ class FlakyDetector:
             result += (
                 f"{os.linesep}    • '{test}' has been tested {metrics.rerun_count} "
                 f"time{'s' if metrics.rerun_count > 1 else ''} using approx. "
-                f"{rerun_duration_seconds / budget_duration_seconds * 100:.2f} % of the budget "
-                f"({rerun_duration_seconds:.2f} s/{budget_duration_seconds:.2f} s)"
+                f"{rerun_duration_seconds / available_budget_duration_seconds * 100:.2f} % of the budget "
+                f"({rerun_duration_seconds:.2f} s/{available_budget_duration_seconds:.2f} s)"
             )
 
         tests_prevented_from_timeout = [
