@@ -593,22 +593,20 @@ def test_flaky_detection_budget_deadline_stops_reruns(
 
 
 @responses.activate
-def test_flaky_detector_filter_context_tests_with_session(
+def test_flaky_detector_prepare_for_session_in_new_mode(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
 ) -> None:
-    _set_test_environment(monkeypatch)
+    _set_test_environment(monkeypatch, mode="new")
     _make_quarantine_mock()
     _make_flaky_detection_context_mock(
+        budget_ratio_for_new_tests=0.5,
         existing_test_names=[
-            "test_flaky_detector_filter_context_tests_with_session.py::test_foo",
-            "test_flaky_detector_filter_context_tests_with_session.py::test_bar",
-            "test_flaky_detector_filter_context_tests_with_session.py::test_baz",  # Unknown test, should be filtered.
+            "test_flaky_detector_prepare_for_session_in_new_mode.py::test_foo",
+            "test_flaky_detector_prepare_for_session_in_new_mode.py::test_baz",  # Unknown test, should be filtered.
         ],
-        unhealthy_test_names=[
-            "test_flaky_detector_filter_context_tests_with_session.py::test_foo",
-            "test_flaky_detector_filter_context_tests_with_session.py::test_qux",  # Unknown test, should be filtered.
-        ],
+        existing_tests_mean_duration_ms=10000,
+        max_test_execution_count=10,
     )
 
     pytester.makepyfile(
@@ -624,10 +622,65 @@ def test_flaky_detector_filter_context_tests_with_session(
     plugin = pytest_mergify.PytestMergify()
 
     result = pytester.runpytest_inprocess(plugins=[plugin])
-    result.assert_outcomes(passed=2)  # 2 existing tests.
+    result.assert_outcomes(passed=12)  # 2 tests and 10 reruns for the new test.
 
     assert plugin.mergify_ci.flaky_detector is not None
 
-    # Unknown test should have been filtered out after collection.
-    assert len(plugin.mergify_ci.flaky_detector._context.existing_test_names) == 2
-    assert len(plugin.mergify_ci.flaky_detector._context.unhealthy_test_names) == 1
+    # Only the known new test should be in the tests to process.
+    assert plugin.mergify_ci.flaky_detector._tests_to_process == [
+        "test_flaky_detector_prepare_for_session_in_new_mode.py::test_bar"
+    ]
+    assert (
+        plugin.mergify_ci.flaky_detector._available_budget_duration.total_seconds()
+        == datetime.timedelta(seconds=5).total_seconds()
+    )
+
+
+@responses.activate
+def test_flaky_detector_prepare_for_session_in_unhealthy_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    _set_test_environment(monkeypatch, mode="unhealthy")
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        budget_ratio_for_unhealthy_tests=0.5,
+        existing_tests_mean_duration_ms=10000,
+        existing_test_names=[
+            "test_flaky_detector_prepare_for_session_in_unhealthy_mode.py::test_foo",
+            "test_flaky_detector_prepare_for_session_in_unhealthy_mode.py::test_baz",  # Unknown test, should be filtered.
+        ],
+        unhealthy_test_names=[
+            "test_flaky_detector_prepare_for_session_in_unhealthy_mode.py::test_foo",
+            "test_flaky_detector_prepare_for_session_in_unhealthy_mode.py::test_baz",  # Unknown test, should be filtered.
+        ],
+        max_test_execution_count=10,
+    )
+
+    pytester.makepyfile(
+        """
+        def test_foo():
+            assert True
+
+        def test_bar():
+            assert True
+        """
+    )
+
+    plugin = pytest_mergify.PytestMergify()
+
+    assert pytester.runpytest_inprocess(plugins=[plugin]).parseoutcomes() == {
+        "passed": 2,
+        "rerun": 10,
+    }
+
+    assert plugin.mergify_ci.flaky_detector is not None
+
+    # Only the known new test should be in the tests to process.
+    assert plugin.mergify_ci.flaky_detector._tests_to_process == [
+        "test_flaky_detector_prepare_for_session_in_unhealthy_mode.py::test_foo"
+    ]
+    assert (
+        plugin.mergify_ci.flaky_detector._available_budget_duration.total_seconds()
+        == datetime.timedelta(seconds=5).total_seconds()
+    )
