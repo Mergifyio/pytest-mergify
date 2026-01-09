@@ -6,6 +6,7 @@ import _pytest.reports
 import freezegun
 import pytest
 
+import pytest_mergify
 from pytest_mergify import flaky_detection
 
 _NOW = datetime.datetime(
@@ -73,23 +74,19 @@ def test_flaky_detector_try_fill_metrics_from_report() -> None:
     detector._context = _make_flaky_detection_context(max_test_name_length=100)
     detector._tests_to_process = ["foo"]
 
-    detector.try_fill_metrics_from_report(
-        make_report(nodeid="foo", when="setup", duration=1)
-    )
-    detector.try_fill_metrics_from_report(
-        make_report(nodeid="foo", when="call", duration=2)
-    )
-    detector.try_fill_metrics_from_report(
+    plugin = pytest_mergify.PytestMergify()
+    plugin.mergify_ci = pytest_mergify.ci_insights.MergifyCIInsights()
+    plugin.mergify_ci.flaky_detector = detector
+
+    plugin.pytest_runtest_logreport(make_report(nodeid="foo", when="setup", duration=1))
+    plugin.pytest_runtest_logreport(make_report(nodeid="foo", when="call", duration=2))
+    plugin.pytest_runtest_logreport(
         make_report(nodeid="foo", when="teardown", duration=3)
     )
 
-    detector.try_fill_metrics_from_report(
-        make_report(nodeid="foo", when="setup", duration=4)
-    )
-    detector.try_fill_metrics_from_report(
-        make_report(nodeid="foo", when="call", duration=5)
-    )
-    detector.try_fill_metrics_from_report(
+    plugin.pytest_runtest_logreport(make_report(nodeid="foo", when="setup", duration=4))
+    plugin.pytest_runtest_logreport(make_report(nodeid="foo", when="call", duration=5))
+    plugin.pytest_runtest_logreport(
         make_report(nodeid="foo", when="teardown", duration=6)
     )
 

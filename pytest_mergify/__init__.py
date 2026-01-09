@@ -352,6 +352,8 @@ Common issues:
             )
 
     def pytest_runtest_logreport(self, report: _pytest.reports.TestReport) -> None:
+        self._try_fill_flaky_detection_metrics_from_report(report)
+
         if self.tracer is None:
             return
 
@@ -377,15 +379,19 @@ Common issues:
             }
         )
 
+    def _try_fill_flaky_detection_metrics_from_report(
+        self, report: _pytest.reports.TestReport
+    ) -> None:
         if not self.mergify_ci.flaky_detector:
             return
 
         if not self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report):
             return
 
-        test_span.set_attributes({"cicd.test.flaky_detection": True})
+        span = opentelemetry.trace.get_current_span()
+        span.set_attributes({"cicd.test.flaky_detection": True})
         if self.mergify_ci.flaky_detector.mode == "new":
-            test_span.set_attributes({"cicd.test.new": True})
+            span.set_attributes({"cicd.test.new": True})
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
