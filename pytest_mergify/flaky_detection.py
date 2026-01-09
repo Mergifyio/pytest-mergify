@@ -155,6 +155,10 @@ class FlakyDetector:
     https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L503-L542
     """
 
+    _debug_logs: typing.List[utils.StructuredLog] = dataclasses.field(
+        init=False, default_factory=list
+    )
+
     def __post_init__(self) -> None:
         self._context = self._fetch_context()
 
@@ -257,10 +261,23 @@ class FlakyDetector:
     def is_last_rerun_for_test(self, test: str) -> bool:
         metrics = self._test_metrics[test]
 
-        return (
+        will_exceed_deadline = metrics.will_exceed_deadline()
+        will_exceed_rerun_count = (
             metrics.rerun_count >= self._context.max_test_execution_count
-            or metrics.will_exceed_deadline()
         )
+
+        self._debug_logs.append(
+            utils.StructuredLog.make(
+                message="Check for last rerun",
+                test=test,
+                deadline=metrics.deadline.isoformat() if metrics.deadline else None,
+                rerun_count=metrics.rerun_count,
+                will_exceed_deadline=will_exceed_deadline,
+                will_exceed_rerun_count=will_exceed_rerun_count,
+            )
+        )
+
+        return will_exceed_deadline or will_exceed_rerun_count
 
     def make_report(self) -> str:
         result = "🐛 Flaky detection"
@@ -334,6 +351,11 @@ class FlakyDetector:
                 f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
             )
 
+        if os.environ.get("PYTEST_MERGIFY_DEBUG") and self._debug_logs:
+            result += f"{os.linesep}🔎 Debug Logs"
+            for log in self._debug_logs:
+                result += f"{os.linesep}{log.to_json()}"
+
         return result
 
     def set_test_deadline(
@@ -341,9 +363,22 @@ class FlakyDetector:
     ) -> None:
         metrics = self._test_metrics[test]
 
+        remaining_budget = self._get_remaining_budget_duration()
+        remaining_tests = self._count_remaining_tests()
+
         # Distribute remaining budget equally across remaining tests.
         metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
-            self._get_remaining_budget_duration() / self._count_remaining_tests()
+            remaining_budget / remaining_tests
+        )
+        self._debug_logs.append(
+            utils.StructuredLog.make(
+                message="Deadline set",
+                test=test,
+                available_budget=str(self._available_budget_duration),
+                remaining_budget=str(remaining_budget),
+                all_tests=len(self._tests_to_process),
+                remaining_tests=remaining_tests,
+            )
         )
 
         if not timeout:
@@ -356,6 +391,15 @@ class FlakyDetector:
         if not metrics.deadline or timeout_deadline < metrics.deadline:
             metrics.deadline = timeout_deadline
             metrics.prevented_timeout = True
+            self._debug_logs.append(
+                utils.StructuredLog.make(
+                    message="Deadline updated to prevent timeout",
+                    test=test,
+                    timeout=str(timeout),
+                    safe_timeout=str(safe_timeout),
+                    deadline=metrics.deadline,
+                )
+            )
 
     def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:
         """
