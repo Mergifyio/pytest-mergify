@@ -71,6 +71,7 @@ def test_flaky_detector_try_fill_metrics_from_report() -> None:
 
     detector = InitializedFlakyDetector()
     detector._context = _make_flaky_detection_context(max_test_name_length=100)
+    detector._tests_to_process = ["foo"]
 
     detector.try_fill_metrics_from_report(
         make_report(nodeid="foo", when="setup", duration=1)
@@ -102,9 +103,7 @@ def test_flaky_detector_try_fill_metrics_from_report() -> None:
 def test_flaky_detector_count_remaining_tests() -> None:
     detector = InitializedFlakyDetector()
     detector.mode = "new"
-    detector._context = _make_flaky_detection_context(
-        existing_test_names=["foo", "bar", "baz"]
-    )
+    detector._tests_to_process = ["foo", "bar", "baz"]
     detector._test_metrics = {
         "foo": flaky_detection._TestMetrics(
             deadline=datetime.datetime.now(datetime.timezone.utc)
@@ -157,63 +156,13 @@ def test_flaky_detector_will_exceed_test_deadline(
 
 @pytest.mark.parametrize(
     argnames=(
-        "context",
-        "mode",
-        "expected",
-    ),
-    argvalues=[
-        pytest.param(
-            _make_flaky_detection_context(
-                existing_tests_mean_duration_ms=2000,
-                existing_test_names=["foo", "bar", "baz"],
-                budget_ratio_for_new_tests=0.25,
-            ),
-            "new",
-            datetime.timedelta(seconds=1, milliseconds=500),
-            id="With 'new' mode",
-        ),
-        pytest.param(
-            _make_flaky_detection_context(
-                existing_tests_mean_duration_ms=2000,
-                existing_test_names=["foo", "bar", "baz"],
-                budget_ratio_for_unhealthy_tests=0.25,
-            ),
-            "unhealthy",
-            datetime.timedelta(seconds=1, milliseconds=500),
-            id="With 'unhealthy' mode",
-        ),
-        pytest.param(
-            _make_flaky_detection_context(min_budget_duration_ms=4000),
-            "new",
-            datetime.timedelta(seconds=4),
-            id="Short test suite",
-        ),
-    ],
-)
-def test_flaky_detector_get_available_budget_duration(
-    context: flaky_detection._FlakyDetectionContext,
-    mode: typing.Literal["new", "unhealthy"],
-    expected: datetime.timedelta,
-) -> None:
-    detector = InitializedFlakyDetector()
-    detector.mode = mode
-    detector._context = context
-    assert expected == detector._get_available_budget_duration()
-
-
-@pytest.mark.parametrize(
-    argnames=(
-        "context",
+        "available_budget_duration",
         "test_metrics",
         "expected",
     ),
     argvalues=[
         pytest.param(
-            _make_flaky_detection_context(
-                existing_tests_mean_duration_ms=2000,
-                existing_test_names=["foo", "bar"],
-                budget_ratio_for_new_tests=0.25,
-            ),
+            datetime.timedelta(seconds=1),
             {
                 "baz": flaky_detection._TestMetrics(
                     total_duration=datetime.timedelta(milliseconds=500)
@@ -227,11 +176,7 @@ def test_flaky_detector_get_available_budget_duration(
             id="Simple",
         ),
         pytest.param(
-            _make_flaky_detection_context(
-                existing_tests_mean_duration_ms=2000,
-                existing_test_names=["foo", "bar"],
-                budget_ratio_for_new_tests=0.1,
-            ),
+            datetime.timedelta(milliseconds=400),
             {
                 "baz": flaky_detection._TestMetrics(
                     total_duration=datetime.timedelta(milliseconds=500)
@@ -243,11 +188,11 @@ def test_flaky_detector_get_available_budget_duration(
     ],
 )
 def test_flaky_detector_get_remaining_budget_duration(
-    context: flaky_detection._FlakyDetectionContext,
+    available_budget_duration: datetime.timedelta,
     test_metrics: typing.Dict[str, flaky_detection._TestMetrics],
     expected: datetime.timedelta,
 ) -> None:
     detector = InitializedFlakyDetector()
-    detector._context = context
+    detector._available_budget_duration = available_budget_duration
     detector._test_metrics = test_metrics
     assert expected == detector._get_remaining_budget_duration()
