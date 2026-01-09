@@ -676,7 +676,7 @@ def test_flaky_detector_prepare_for_session_in_unhealthy_mode(
 
     assert plugin.mergify_ci.flaky_detector is not None
 
-    # Only the known new test should be in the tests to process.
+    # Only the known unhealthy test should be in the tests to process.
     assert plugin.mergify_ci.flaky_detector._tests_to_process == [
         "test_flaky_detector_prepare_for_session_in_unhealthy_mode.py::test_foo"
     ]
