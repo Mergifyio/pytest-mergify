@@ -179,23 +179,31 @@ class FlakyDetector:
 
         return result
 
-    def try_fill_metrics_from_report(self, report: _pytest.reports.TestReport) -> bool:
-        if report.outcome not in ["failed", "passed", "rerun"]:
-            return False
-
+    def try_fill_metrics_from_report(self, report: _pytest.reports.TestReport) -> None:
         test = report.nodeid
 
+        if report.outcome == "skipped":
+            # Remove metrics for skipped tests. Setup phase may have passed and
+            # initialized metrics before call phase was skipped.
+            self._test_metrics.pop(test, None)
+            return
+
         if test not in self._tests_to_process:
-            return False
+            return
 
         if len(test) > self._context.max_test_name_length:
             self._over_length_tests.add(test)
-            return False
+            return
 
-        metrics = self._test_metrics.setdefault(test, _TestMetrics())
-        metrics.fill_from_report(report)
+        if test not in self._test_metrics:
+            if report.when != "setup":
+                # Metrics have been removed (e.g. for a skipped test), do nothing.
+                return
 
-        return True
+            # Initialize metrics after setup phase.
+            self._test_metrics[test] = _TestMetrics()
+
+        self._test_metrics[test].fill_from_report(report)
 
     def prepare_for_session(self, session: _pytest.main.Session) -> None:
         tests_in_session = {item.nodeid for item in session.items}
@@ -242,7 +250,9 @@ class FlakyDetector:
         )
 
     def is_rerunning_test(self, test: str) -> bool:
-        return test in self._test_metrics
+        return (
+            metrics := self._test_metrics.get(test)
+        ) is not None and metrics.rerun_count >= 1
 
     def is_last_rerun_for_test(self, test: str) -> bool:
         metrics = self._test_metrics[test]
