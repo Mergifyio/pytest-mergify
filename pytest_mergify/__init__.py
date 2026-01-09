@@ -140,7 +140,7 @@ Common issues:
 
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
+            self.mergify_ci.flaky_detector.set_test_to_process_from_session(session)
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(

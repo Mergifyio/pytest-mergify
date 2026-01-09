@@ -1,5 +1,6 @@
 import dataclasses
 import datetime
+import json
 import os
 import typing
 
@@ -148,6 +149,10 @@ class FlakyDetector:
     https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L503-L542
     """
 
+    _log_messages: typing.List[str] = dataclasses.field(
+        init=False, default_factory=list
+    )
+
     def __post_init__(self) -> None:
         self._context = self._fetch_context()
 
@@ -178,11 +183,7 @@ class FlakyDetector:
 
         test = report.nodeid
 
-        if self.mode == "new" and test in self._context.existing_test_names:
-            return False
-        elif (
-            self.mode == "unhealthy" and test not in self._context.unhealthy_test_names
-        ):
+        if test not in self._tests_to_process:
             return False
 
         if len(test) > self._context.max_test_name_length:
@@ -194,14 +195,43 @@ class FlakyDetector:
 
         return True
 
-    def filter_context_tests_with_session(self, session: _pytest.main.Session) -> None:
+    _available_budget: datetime.timedelta = dataclasses.field(
+        init=False, default_factory=datetime.timedelta
+    )
+    _tests_to_process: typing.List[str] = dataclasses.field(
+        init=False, default_factory=list
+    )
+
+    def set_test_to_process_from_session(self, session: _pytest.main.Session) -> None:
         session_tests = {item.nodeid for item in session.items}
-        self._context.existing_test_names = [
+
+        existing_tests_in_session = [
             test for test in self._context.existing_test_names if test in session_tests
         ]
-        self._context.unhealthy_test_names = [
-            test for test in self._context.unhealthy_test_names if test in session_tests
-        ]
+
+        if self.mode == "new":
+            self._tests_to_process = [
+                test for test in session_tests if test not in existing_tests_in_session
+            ]
+
+            ratio = self._context.budget_ratio_for_new_tests
+        elif self.mode == "unhealthy":
+            self._tests_to_process = [
+                test
+                for test in self._context.unhealthy_test_names
+                if test in session_tests
+            ]
+
+            ratio = self._context.budget_ratio_for_unhealthy_tests
+
+        total_duration = self._context.existing_tests_mean_duration * len(
+            existing_tests_in_session
+        )
+
+        self._available_budget = max(
+            ratio * total_duration,
+            self._context.min_budget_duration,
+        )
 
     def is_test_too_slow(self, test: str) -> bool:
         metrics = self._test_metrics[test]
@@ -216,6 +246,24 @@ class FlakyDetector:
 
     def is_last_rerun_for_test(self, test: str) -> bool:
         metrics = self._test_metrics[test]
+
+        self._log_messages.append(
+            f"Checking if it's the last rerun for '{test}': {
+                json.dumps(
+                    {
+                        'rerun_count': metrics.rerun_count,
+                        'max_test_execution_count': self._context.max_test_execution_count,
+                        'deadline': metrics.deadline.isoformat()
+                        if metrics.deadline
+                        else None,
+                        'now': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        'will_exceed_rerun_count': metrics.rerun_count
+                        >= self._context.max_test_execution_count,
+                        'will_exceed_deadline': metrics.will_exceed_deadline(),
+                    }
+                )
+            }"
+        )
 
         return (
             metrics.rerun_count >= self._context.max_test_execution_count
@@ -242,9 +290,7 @@ class FlakyDetector:
 
             return result
 
-        available_budget_duration_seconds = (
-            self._get_available_budget_duration().total_seconds()
-        )
+        available_budget_duration_seconds = self._available_budget.total_seconds()
         used_budget_duration_seconds = self._get_used_budget_duration().total_seconds()
         result += (
             f"{os.linesep}- Used {used_budget_duration_seconds / available_budget_duration_seconds * 100:.2f} % of the budget "
@@ -256,7 +302,7 @@ class FlakyDetector:
             f"test{'s' if len(self._test_metrics) > 1 else ''}:"
         )
         for test, metrics in self._test_metrics.items():
-            if metrics.rerun_count < self._context.min_test_execution_count:
+            if metrics.rerun_count == 1:
                 result += (
                     f"{os.linesep}    • '{test}' is too slow to be tested at least "
                     f"{self._context.min_test_execution_count} times within the budget"
@@ -294,6 +340,11 @@ class FlakyDetector:
                 f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
             )
 
+        if self._log_messages:
+            result += f"{os.linesep}Log Messages"
+            for message in self._log_messages:
+                result += f"{os.linesep}{message}"
+
         return result
 
     def set_test_deadline(
@@ -301,9 +352,30 @@ class FlakyDetector:
     ) -> None:
         metrics = self._test_metrics[test]
 
+        log_attrs = {
+            "now": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "available_budget": str(self._available_budget),
+            "used_budget": str(self._get_used_budget_duration()),
+            "remaining_budget": str(self._get_remaining_budget_duration()),
+            "all_tests": len(self._tests_to_process),
+            "processed_tests": len(
+                {
+                    test
+                    for test, metrics in self._test_metrics.items()
+                    if metrics.deadline
+                }
+            ),
+            "remaining_tests": self._count_remaining_tests(),
+        }
+
         # Distribute remaining budget equally across remaining tests.
         metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
             self._get_remaining_budget_duration() / self._count_remaining_tests()
+        )
+        self._log_messages.append(
+            f"Deadline set for '{test}': {
+                json.dumps({**log_attrs, 'deadline': metrics.deadline.isoformat()})
+            }"
         )
 
         if not timeout:
@@ -316,6 +388,19 @@ class FlakyDetector:
         if not metrics.deadline or timeout_deadline < metrics.deadline:
             metrics.deadline = timeout_deadline
             metrics.prevented_timeout = True
+
+            self._log_messages.append(
+                f"Deadline updated for '{test}' to prevent timeout: {
+                    json.dumps(
+                        {
+                            **log_attrs,
+                            'timeout': str(timeout),
+                            'safe_timeout': str(safe_timeout),
+                            'new_deadline': metrics.deadline.isoformat(),
+                        }
+                    )
+                }"
+            )
 
     def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:
         """
@@ -348,29 +433,22 @@ class FlakyDetector:
         self._suspended_item_finalizers.clear()
 
     def _count_remaining_tests(self) -> int:
-        if self.mode == "new":
-            tests = self._context.existing_test_names
-        elif self.mode == "unhealthy":
-            tests = self._context.unhealthy_test_names
-
         already_processed_tests = {
             test for test, metrics in self._test_metrics.items() if metrics.deadline
         }
 
-        return max(len(tests) - len(already_processed_tests), 1)
+        return max(len(self._tests_to_process) - len(already_processed_tests), 1)
 
-    def _get_available_budget_duration(self) -> datetime.timedelta:
-        total_duration = self._context.existing_tests_mean_duration * len(
-            self._context.existing_test_names
-        )
+    # def _get_available_budget_duration(self) -> datetime.timedelta:
+    #     total_duration = self._context.existing_tests_mean_duration * self._foo
 
-        if self.mode == "new":
-            ratio = self._context.budget_ratio_for_new_tests
-        elif self.mode == "unhealthy":
-            ratio = self._context.budget_ratio_for_unhealthy_tests
+    #     if self.mode == "new":
+    #         ratio = self._context.budget_ratio_for_new_tests
+    #     elif self.mode == "unhealthy":
+    #         ratio = self._context.budget_ratio_for_unhealthy_tests
 
-        # We want to ensure a minimum duration even for very short test suites.
-        return max(ratio * total_duration, self._context.min_budget_duration)
+    #     # We want to ensure a minimum duration even for very short test suites.
+    #     return max(ratio * total_duration, self._context.min_budget_duration)
 
     def _get_used_budget_duration(self) -> datetime.timedelta:
         return sum(
@@ -380,6 +458,6 @@ class FlakyDetector:
 
     def _get_remaining_budget_duration(self) -> datetime.timedelta:
         return max(
-            self._get_available_budget_duration() - self._get_used_budget_duration(),
+            self._available_budget - self._get_used_budget_duration(),
             datetime.timedelta(),
         )
