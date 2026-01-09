@@ -113,127 +113,44 @@ def test_flaky_detector_count_remaining_tests() -> None:
     assert detector._count_remaining_tests() == 2
 
 
-@freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_rerun_count_for_test() -> None:
-    detector = InitializedFlakyDetector()
-    detector._context = _make_flaky_detection_context(
-        existing_test_names=["foo", "bar", "baz"],
-        max_test_execution_count=1000,
-    )
-    detector._test_metrics = {
-        "foo": flaky_detection._TestMetrics(
-            initial_call_duration=datetime.timedelta(milliseconds=10),
-            is_processed=True,
-        ),
-        "bar": flaky_detection._TestMetrics(
-            deadline=_NOW + datetime.timedelta(seconds=4),
-            initial_call_duration=datetime.timedelta(milliseconds=100),
-        ),
-        "baz": flaky_detection._TestMetrics(),
-    }
-
-    assert detector.get_rerun_count_for_test("bar") == 20
-
-
-@freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_rerun_count_for_test_with_slow_test() -> None:
-    detector = InitializedFlakyDetector()
-    detector._context = _make_flaky_detection_context(
-        min_test_execution_count=5,
-        max_test_execution_count=1000,
-    )
-    detector._test_metrics = {
-        "foo": flaky_detection._TestMetrics(
-            # Can't be reran 5 times within the budget.
-            deadline=_NOW + datetime.timedelta(seconds=4),
-            initial_call_duration=datetime.timedelta(seconds=1),
-        ),
-        "bar": flaky_detection._TestMetrics(
-            # This test should not be impacted by the previous one.
-            deadline=_NOW + datetime.timedelta(milliseconds=500),
-            initial_call_duration=datetime.timedelta(milliseconds=1),
-        ),
-    }
-
-    assert detector.get_rerun_count_for_test("foo") == 0
-
-    assert detector.get_rerun_count_for_test("bar") == 500
-
-
-@freezegun.freeze_time(_NOW)
-def test_flaky_detector_get_rerun_count_for_test_with_fast_test() -> None:
-    detector = InitializedFlakyDetector()
-    detector._context = _make_flaky_detection_context(max_test_execution_count=1000)
-    detector._test_metrics = {
-        "foo": flaky_detection._TestMetrics(
-            # Should only be reran 1000 times, freeing the rest of the budget for other tests.
-            deadline=_NOW + datetime.timedelta(seconds=4),
-            initial_call_duration=datetime.timedelta(milliseconds=1),
-        ),
-    }
-
-    assert detector.get_rerun_count_for_test("foo") == 1000
-
-
 @freezegun.freeze_time(
     time_to_freeze=datetime.datetime.fromisoformat("2025-01-01T00:00:00+00:00")
 )
 @pytest.mark.parametrize(
-    argnames=("metrics", "test", "expected"),
+    argnames=("metrics", "expected"),
     argvalues=[
-        pytest.param({}, "foo", False, id="Metrics not found"),
+        pytest.param(flaky_detection._TestMetrics(), True, id="Deadline not set"),
         pytest.param(
-            {"foo": flaky_detection._TestMetrics()}, "foo", False, id="Deadline not set"
-        ),
-        pytest.param(
-            {
-                "foo": flaky_detection._TestMetrics(
-                    deadline=datetime.datetime.fromisoformat(
-                        "2025-01-02T00:00:00+00:00"
-                    ),
-                    initial_call_duration=datetime.timedelta(seconds=1),
-                ),
-            },
-            "foo",
+            flaky_detection._TestMetrics(
+                deadline=datetime.datetime.fromisoformat("2025-01-02T00:00:00+00:00"),
+                initial_call_duration=datetime.timedelta(seconds=1),
+            ),
             False,
             id="Not exceeded",
         ),
         pytest.param(
-            {
-                "foo": flaky_detection._TestMetrics(
-                    deadline=datetime.datetime.fromisoformat(
-                        "2025-01-01T00:00:00+00:00"
-                    ),
-                    initial_call_duration=datetime.timedelta(),
-                ),
-            },
-            "foo",
+            flaky_detection._TestMetrics(
+                deadline=datetime.datetime.fromisoformat("2025-01-01T00:00:00+00:00"),
+                initial_call_duration=datetime.timedelta(),
+            ),
             True,
             id="Exceeded by deadline",
         ),
         pytest.param(
-            {
-                "foo": flaky_detection._TestMetrics(
-                    deadline=datetime.datetime.fromisoformat(
-                        "2025-01-01T00:00:00+00:00"
-                    ),
-                    initial_call_duration=datetime.timedelta(minutes=2),
-                ),
-            },
-            "foo",
+            flaky_detection._TestMetrics(
+                deadline=datetime.datetime.fromisoformat("2025-01-01T00:00:00+00:00"),
+                initial_call_duration=datetime.timedelta(minutes=2),
+            ),
             True,
             id="Exceeded by initial duration",
         ),
     ],
 )
 def test_flaky_detector_will_exceed_test_deadline(
-    metrics: typing.Dict[str, flaky_detection._TestMetrics],
-    test: str,
+    metrics: flaky_detection._TestMetrics,
     expected: bool,
 ) -> None:
-    detector = InitializedFlakyDetector()
-    detector._test_metrics = metrics
-    assert detector.will_exceed_test_deadline(test) == expected
+    assert metrics.will_exceed_deadline() == expected
 
 
 @pytest.mark.parametrize(
