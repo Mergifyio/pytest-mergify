@@ -106,7 +106,9 @@ def test_flaky_detector_count_remaining_tests() -> None:
         existing_test_names=["foo", "bar", "baz"]
     )
     detector._test_metrics = {
-        "foo": flaky_detection._TestMetrics(is_processed=True),
+        "foo": flaky_detection._TestMetrics(
+            deadline=datetime.datetime.now(datetime.timezone.utc)
+        ),
         "bar": flaky_detection._TestMetrics(),
         "baz": flaky_detection._TestMetrics(),
     }

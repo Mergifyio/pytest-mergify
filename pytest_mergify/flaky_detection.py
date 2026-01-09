@@ -59,10 +59,6 @@ class _TestMetrics:
             + self.initial_teardown_duration
         )
 
-    # NOTE(remyduthu): We need this flag because we may have processed a test
-    # without scheduling reruns for it (e.g., because it was too slow).
-    is_processed: bool = dataclasses.field(default=False)
-
     rerun_count: int = dataclasses.field(default=0)
     "Represents the number of times the test has been rerun so far."
 
@@ -309,7 +305,6 @@ class FlakyDetector:
         metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
             self._get_remaining_budget_duration() / self._count_remaining_tests()
         )
-        metrics.is_processed = True
 
         if not timeout:
             return
@@ -359,7 +354,7 @@ class FlakyDetector:
             tests = self._context.unhealthy_test_names
 
         already_processed_tests = {
-            test for test, metrics in self._test_metrics.items() if metrics.is_processed
+            test for test, metrics in self._test_metrics.items() if metrics.deadline
         }
 
         return max(len(tests) - len(already_processed_tests), 1)
