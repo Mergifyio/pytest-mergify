@@ -1,5 +1,6 @@
 import dataclasses
 import datetime
+import json
 import os
 import typing
 
@@ -148,6 +149,10 @@ class FlakyDetector:
     https://github.com/pytest-dev/pytest-rerunfailures/blob/master/src/pytest_rerunfailures.py#L503-L542
     """
 
+    _log_messages: typing.List[str] = dataclasses.field(
+        init=False, default_factory=list
+    )
+
     def __post_init__(self) -> None:
         self._context = self._fetch_context()
 
@@ -217,6 +222,24 @@ class FlakyDetector:
     def is_last_rerun_for_test(self, test: str) -> bool:
         metrics = self._test_metrics[test]
 
+        self._log_messages.append(
+            f"Checking if it's the last rerun for '{test}': {
+                json.dumps(
+                    {
+                        'rerun_count': metrics.rerun_count,
+                        'max_test_execution_count': self._context.max_test_execution_count,
+                        'deadline': metrics.deadline.isoformat()
+                        if metrics.deadline
+                        else None,
+                        'now': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        'will_exceed_rerun_count': metrics.rerun_count
+                        >= self._context.max_test_execution_count,
+                        'will_exceed_deadline': metrics.will_exceed_deadline(),
+                    }
+                )
+            }"
+        )
+
         return (
             metrics.rerun_count >= self._context.max_test_execution_count
             or metrics.will_exceed_deadline()
@@ -256,7 +279,7 @@ class FlakyDetector:
             f"test{'s' if len(self._test_metrics) > 1 else ''}:"
         )
         for test, metrics in self._test_metrics.items():
-            if metrics.rerun_count < self._context.min_test_execution_count:
+            if metrics.rerun_count == 1:
                 result += (
                     f"{os.linesep}    • '{test}' is too slow to be tested at least "
                     f"{self._context.min_test_execution_count} times within the budget"
@@ -294,6 +317,11 @@ class FlakyDetector:
                 f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
             )
 
+        if self._log_messages:
+            result += f"{os.linesep}Log Messages"
+            for message in self._log_messages:
+                result += f"{os.linesep}{message}"
+
         return result
 
     def set_test_deadline(
@@ -305,6 +333,7 @@ class FlakyDetector:
         metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
             self._get_remaining_budget_duration() / self._count_remaining_tests()
         )
+        self._log_messages.append(f"Deadline set to: {metrics.deadline.isoformat()}")
 
         if not timeout:
             return
@@ -316,6 +345,10 @@ class FlakyDetector:
         if not metrics.deadline or timeout_deadline < metrics.deadline:
             metrics.deadline = timeout_deadline
             metrics.prevented_timeout = True
+
+            self._log_messages.append(
+                f"Deadline updated to prevent timeout to: {metrics.deadline.isoformat()} (timeout: {timeout.total_seconds()} s, safe_timeout: {safe_timeout.total_seconds()} s)"
+            )
 
     def suspend_item_finalizers(self, item: _pytest.nodes.Item) -> None:
         """
