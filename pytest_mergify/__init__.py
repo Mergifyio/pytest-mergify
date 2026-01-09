@@ -140,7 +140,7 @@ Common issues:
 
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
-            self.mergify_ci.flaky_detector.filter_context_tests_with_session(session)
+            self.mergify_ci.flaky_detector.initialize_from_session(session)
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_sessionfinish(
@@ -352,6 +352,15 @@ Common issues:
             )
 
     def pytest_runtest_logreport(self, report: _pytest.reports.TestReport) -> None:
+        if self.mergify_ci.flaky_detector:
+            if not self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report):
+                return
+
+            span = opentelemetry.trace.get_current_span()
+            span.set_attributes({"cicd.test.flaky_detection": True})
+            if self.mergify_ci.flaky_detector.mode == "new":
+                span.set_attributes({"cicd.test.new": True})
+
         if self.tracer is None:
             return
 
@@ -376,16 +385,6 @@ Common issues:
                 "test.case.result.status": report.outcome,
             }
         )
-
-        if not self.mergify_ci.flaky_detector:
-            return
-
-        if not self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report):
-            return
-
-        test_span.set_attributes({"cicd.test.flaky_detection": True})
-        if self.mergify_ci.flaky_detector.mode == "new":
-            test_span.set_attributes({"cicd.test.new": True})
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
