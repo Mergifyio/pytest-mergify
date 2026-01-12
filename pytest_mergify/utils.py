@@ -1,3 +1,6 @@
+import dataclasses
+import datetime
+import json
 import os
 import re
 import subprocess
@@ -13,6 +16,30 @@ SUPPORTED_CIs: typing.Dict[str, CIProviderT] = {
     "JENKINS_URL": "jenkins",
     "_PYTEST_MERGIFY_TEST": "pytest_mergify_suite",
 }
+
+
+@dataclasses.dataclass
+class StructuredLog:
+    message: str
+    timestamp: datetime.datetime
+    attributes: typing.Dict[str, typing.Any]
+
+    @classmethod
+    def make(cls, message: str, **kwargs: typing.Any) -> "StructuredLog":
+        return cls(
+            message=message,
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
+            attributes=kwargs,
+        )
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "timestamp": self.timestamp.isoformat(),
+                "message": self.message,
+                **self.attributes,
+            }
+        )
 
 
 def is_in_ci() -> bool:
