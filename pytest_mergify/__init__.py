@@ -352,6 +352,9 @@ Common issues:
             )
 
     def pytest_runtest_logreport(self, report: _pytest.reports.TestReport) -> None:
+        if self.mergify_ci.flaky_detector:
+            self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report)
+
         if self.tracer is None:
             return
 
@@ -377,15 +380,13 @@ Common issues:
             }
         )
 
-        if not self.mergify_ci.flaky_detector:
-            return
-
-        if not self.mergify_ci.flaky_detector.try_fill_metrics_from_report(report):
-            return
-
-        test_span.set_attributes({"cicd.test.flaky_detection": True})
-        if self.mergify_ci.flaky_detector.mode == "new":
-            test_span.set_attributes({"cicd.test.new": True})
+        if (
+            self.mergify_ci.flaky_detector
+            and self.mergify_ci.flaky_detector.is_rerunning_test(report.nodeid)
+        ):
+            test_span.set_attributes({"cicd.test.flaky_detection": True})
+            if self.mergify_ci.flaky_detector.mode == "new":
+                test_span.set_attributes({"cicd.test.new": True})
 
 
 def pytest_addoption(parser: _pytest.config.argparsing.Parser) -> None:
