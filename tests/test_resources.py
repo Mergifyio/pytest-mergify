@@ -5,6 +5,7 @@ from unittest import mock
 import pytest
 
 from pytest_mergify import utils
+from pytest_mergify.resources import github_actions
 from tests import conftest
 
 
@@ -76,6 +77,32 @@ def test_span_github_actions(
         span.resource.attributes["cicd.pipeline.runner.name"] == "self-hosted"
         for span in spans.values()
     )
+
+
+@pytest.mark.parametrize(
+    ("head_ref", "ref_name", "expected"),
+    [
+        pytest.param("feature-branch", "123/merge", "feature-branch", id="PR context"),
+        pytest.param(None, "main", "main", id="Without `GITHUB_REF_NAME`"),
+        pytest.param("", "main", "main", id="Empty `GITHUB_REF_NAME`"),
+        pytest.param(None, None, None, id="Without any variable"),
+    ],
+)
+def test_get_head_ref_name(
+    monkeypatch: pytest.MonkeyPatch,
+    head_ref: typing.Optional[str],
+    ref_name: typing.Optional[str],
+    expected: typing.Optional[str],
+) -> None:
+    monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    if head_ref:
+        monkeypatch.setenv("GITHUB_HEAD_REF", head_ref)
+    if ref_name:
+        monkeypatch.setenv("GITHUB_REF_NAME", ref_name)
+
+    assert github_actions._get_head_ref_name() == expected
 
 
 @mock.patch("pytest_mergify.utils.git", return_value=None)

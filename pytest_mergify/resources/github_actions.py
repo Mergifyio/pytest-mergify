@@ -26,6 +26,13 @@ def _get_repository_url() -> typing.Optional[str]:
     return None
 
 
+def _get_head_ref_name() -> typing.Optional[str]:
+    # `GITHUB_HEAD_REF` contains the actual branch name for PRs, while
+    # `GITHUB_REF_NAME` contains `<pr_number>/merge`. However, `GITHUB_HEAD_REF`
+    # is only set for PR events, so we fall back to `GITHUB_REF_NAME`.
+    return os.getenv("GITHUB_HEAD_REF") or os.getenv("GITHUB_REF_NAME")
+
+
 class GitHubActionsResourceDetector(ResourceDetector):
     """Detects OpenTelemetry Resource attributes for GitHub Actions."""
 
@@ -35,7 +42,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
         cicd_attributes.CICD_PIPELINE_RUN_ID: (int, "GITHUB_RUN_ID"),
         "cicd.pipeline.run.attempt": (int, "GITHUB_RUN_ATTEMPT"),
         "cicd.pipeline.runner.name": (str, "RUNNER_NAME"),
-        vcs_attributes.VCS_REF_HEAD_NAME: (str, "GITHUB_REF_NAME"),
+        vcs_attributes.VCS_REF_HEAD_NAME: (str, _get_head_ref_name),
         vcs_attributes.VCS_REF_HEAD_TYPE: (str, "GITHUB_REF_TYPE"),
         vcs_attributes.VCS_REF_BASE_NAME: (str, "GITHUB_BASE_REF"),
         "vcs.repository.name": (str, "GITHUB_REPOSITORY"),

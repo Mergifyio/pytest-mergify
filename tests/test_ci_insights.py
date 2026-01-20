@@ -27,12 +27,13 @@ def _set_test_environment(
     monkeypatch.setenv("MERGIFY_TOKEN", "my_token")
 
     if mode == "unhealthy":
-        # Simulate absence of a PR context: without `GITHUB_BASE_REF` and
-        # `GITHUB_REF_NAME` `MergifyCIInsights.branch_name` can't be derived,
+        # Simulate absence of a PR context: without `GITHUB_BASE_REF` and branch
+        # ref variables, `MergifyCIInsights.branch_name` can't be derived,
         # forcing the flaky detector to fall back to `unhealthy` mode. This
         # explicitly exercises the fallback path used when no PR metadata is
         # available.
         monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
         monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
 
 
