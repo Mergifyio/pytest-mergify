@@ -28,12 +28,12 @@ def _set_test_environment(
 
     if mode == "unhealthy":
         # Simulate absence of a PR context: without `GITHUB_BASE_REF` and
-        # `GITHUB_REF_NAME` `MergifyCIInsights.branch_name` can't be derived,
+        # `GITHUB_HEAD_REF` `MergifyCIInsights.branch_name` can't be derived,
         # forcing the flaky detector to fall back to `unhealthy` mode. This
         # explicitly exercises the fallback path used when no PR metadata is
         # available.
         monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
-        monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+        monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
 
 
 def _make_quarantine_mock() -> None:

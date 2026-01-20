@@ -35,7 +35,7 @@ class GitHubActionsResourceDetector(ResourceDetector):
         cicd_attributes.CICD_PIPELINE_RUN_ID: (int, "GITHUB_RUN_ID"),
         "cicd.pipeline.run.attempt": (int, "GITHUB_RUN_ATTEMPT"),
         "cicd.pipeline.runner.name": (str, "RUNNER_NAME"),
-        vcs_attributes.VCS_REF_HEAD_NAME: (str, "GITHUB_REF_NAME"),
+        vcs_attributes.VCS_REF_HEAD_NAME: (str, "GITHUB_HEAD_REF"),
         vcs_attributes.VCS_REF_HEAD_TYPE: (str, "GITHUB_REF_TYPE"),
         vcs_attributes.VCS_REF_BASE_NAME: (str, "GITHUB_BASE_REF"),
         "vcs.repository.name": (str, "GITHUB_REPOSITORY"),
