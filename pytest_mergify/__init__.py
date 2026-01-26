@@ -364,6 +364,17 @@ Common issues:
         if report.outcome is None:
             return  # type: ignore[unreachable]
 
+        if (
+            self.mergify_ci.flaky_detector
+            and self.mergify_ci.flaky_detector.is_test_rerun(report.nodeid)
+        ):
+            return
+
+        self._update_current_span_from_report(report)
+
+    def _update_current_span_from_report(
+        self, report: _pytest.reports.TestReport
+    ) -> None:
         has_error = report.outcome == "failed"
         status_code = (
             opentelemetry.trace.StatusCode.ERROR
