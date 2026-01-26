@@ -253,6 +253,13 @@ class FlakyDetector:
             > metrics.remaining_time()
         )
 
+    def is_test_rerun(self, test: str) -> bool:
+        """Returns `True` if the test has already completed its initial run and is
+        now in a rerun, `False` otherwise."""
+        return (
+            metrics := self._test_metrics.get(test)
+        ) is not None and metrics.rerun_count > 1
+
     def is_rerunning_test(self, test: str) -> bool:
         return (
             metrics := self._test_metrics.get(test)

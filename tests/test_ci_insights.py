@@ -308,6 +308,8 @@ def test_flaky_detection_for_unhealthy_tests(
             assert not span.attributes.get("cicd.test.new")
             assert span.attributes.get("cicd.test.flaky_detection", False) is True
             assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
+            # The status should reflect the initial run outcome, not "rerun"
+            assert span.attributes.get("test.case.result.status") == "passed"
 
 
 @responses.activate
