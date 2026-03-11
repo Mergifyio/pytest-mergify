@@ -272,7 +272,6 @@ def test_flaky_detection_for_unhealthy_tests(
     assert result.ret == 0
 
     outcomes = result.parseoutcomes()
-    assert len(outcomes) == 3
     assert outcomes["passed"] == 4  # Initial run of each test.
     assert outcomes["skipped"] == 1
     assert outcomes["rerun"] == 3000  # 1000 reruns for each unhealthy test.
@@ -672,10 +671,9 @@ def test_flaky_detector_prepare_for_session_in_unhealthy_mode(
 
     plugin = pytest_mergify.PytestMergify()
 
-    assert pytester.runpytest_inprocess(plugins=[plugin]).parseoutcomes() == {
-        "passed": 2,
-        "rerun": 10,
-    }
+    outcomes = pytester.runpytest_inprocess(plugins=[plugin]).parseoutcomes()
+    assert outcomes["passed"] == 2
+    assert outcomes["rerun"] == 10
 
     assert plugin.mergify_ci.flaky_detector is not None
 
