@@ -34,6 +34,25 @@ jobs:
           uv run poe test
           uv build
 
+  codespell:
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version-file: requirements-uv.txt
+
+      - run: |
+          export UV_PYTHON=3.14
+          export UV_LOCKED=1
+          uv run codespell
+
   semgrep:
     timeout-minutes: 20
     runs-on: ubuntu-24.04

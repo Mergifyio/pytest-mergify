@@ -13,6 +13,11 @@ sequence = [
   "ruff check .",
   "ruff format --check .",
   "mypy",
-  "codespell",
   "yamllint .",
 ]
+
+[tool.poe.tasks.codespell]
+help = "Run codespell (requires Python 3.14+)"
+cmd = "codespell"
+[tool.poe.tasks.codespell.env]
+UV_PYTHON = "3.14"
