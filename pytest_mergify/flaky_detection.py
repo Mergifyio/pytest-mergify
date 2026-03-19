@@ -1,5 +1,6 @@
 import dataclasses
 import datetime
+import json
 import os
 import typing
 
@@ -159,8 +160,32 @@ class FlakyDetector:
         init=False, default_factory=list
     )
 
+    _is_xdist: bool = dataclasses.field(init=False, default=False)
+
     def __post_init__(self) -> None:
         self._context = self._fetch_context()
+
+    @classmethod
+    def from_context(
+        cls,
+        context_dict: typing.Dict[str, typing.Any],
+        mode: typing.Literal["new", "unhealthy"],
+    ) -> "FlakyDetector":
+        """Construct from serialized context dict, skipping the API call."""
+        instance = cls.__new__(cls)
+        instance.token = ""
+        instance.url = ""
+        instance.full_repository_name = ""
+        instance.mode = mode
+        instance._context = _FlakyDetectionContext(**context_dict)
+        instance._test_metrics = {}
+        instance._over_length_tests = set()
+        instance._available_budget_duration = datetime.timedelta()
+        instance._tests_to_process = []
+        instance._suspended_item_finalizers = {}
+        instance._debug_logs = []
+        instance._is_xdist = True
+        return instance
 
     def _fetch_context(self) -> _FlakyDetectionContext:
         owner, repository_name = utils.split_full_repo_name(
@@ -287,106 +312,56 @@ class FlakyDetector:
         return will_exceed_deadline or will_exceed_rerun_count
 
     def make_report(self) -> str:
-        result = "🐛 Flaky detection"
-        if self._over_length_tests:
-            result += (
-                f"{os.linesep}- Skipped {len(self._over_length_tests)} "
-                f"test{'s' if len(self._over_length_tests) > 1 else ''}:"
-            )
-            for test in self._over_length_tests:
-                result += (
-                    f"{os.linesep}    • '{test}' has not been tested multiple times because the name of the test "
-                    f"exceeds our limit of {self._context.max_test_name_length} characters"
-                )
-
-        if not self._test_metrics:
-            result += (
-                f"{os.linesep}- No {self.mode} tests detected, but we are watching 👀"
-            )
-
-            return result
-
-        available_budget_duration_seconds = (
-            self._available_budget_duration.total_seconds()
+        """Generate terminal report by delegating to the shared report function."""
+        serialized = self.to_serializable_metrics()
+        return make_report_from_aggregated(
+            context_dict=dataclasses.asdict(self._context),
+            mode=self.mode,
+            available_budget_duration_ms=self._available_budget_duration.total_seconds()
+            * 1000,
+            aggregated_metrics=serialized,
         )
-        used_budget_duration_seconds = self._get_used_budget_duration().total_seconds()
-        result += (
-            f"{os.linesep}- Used {used_budget_duration_seconds / available_budget_duration_seconds * 100:.2f} % of the budget "
-            f"({used_budget_duration_seconds:.2f} s/{available_budget_duration_seconds:.2f} s)"
-        )
-
-        result += (
-            f"{os.linesep}- Active for {len(self._test_metrics)} {self.mode} "
-            f"test{'s' if len(self._test_metrics) > 1 else ''}:"
-        )
-        for test, metrics in self._test_metrics.items():
-            if metrics.rerun_count < self._context.min_test_execution_count:
-                result += (
-                    f"{os.linesep}    • '{test}' is too slow to be tested at least "
-                    f"{self._context.min_test_execution_count} times within the budget"
-                )
-                continue
-
-            rerun_duration_seconds = metrics.total_duration.total_seconds()
-            result += (
-                f"{os.linesep}    • '{test}' has been tested {metrics.rerun_count} "
-                f"time{'s' if metrics.rerun_count > 1 else ''} using approx. "
-                f"{rerun_duration_seconds / available_budget_duration_seconds * 100:.2f} % of the budget "
-                f"({rerun_duration_seconds:.2f} s/{available_budget_duration_seconds:.2f} s)"
-            )
-
-        tests_prevented_from_timeout = [
-            test
-            for test, metrics in self._test_metrics.items()
-            if metrics.prevented_timeout
-        ]
-        if tests_prevented_from_timeout:
-            result += (
-                f"{os.linesep}⚠️ Reduced reruns for the following "
-                f"test{'s' if len(tests_prevented_from_timeout) else ''} to respect 'pytest-timeout':"
-            )
-
-            for test in [
-                test
-                for test, metrics in self._test_metrics.items()
-                if metrics.prevented_timeout
-            ]:
-                result += f"{os.linesep}    • '{test}'"
-
-            result += (
-                f"{os.linesep}To improve flaky detection and prevent fixture-level timeouts from limiting reruns, enable function-only timeouts. "
-                f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
-            )
-
-        if os.environ.get("PYTEST_MERGIFY_DEBUG") and self._debug_logs:
-            result += f"{os.linesep}🔎 Debug Logs"
-            for log in self._debug_logs:
-                result += f"{os.linesep}{log.to_json()}"
-
-        return result
 
     def set_test_deadline(
         self, test: str, timeout: typing.Optional[datetime.timedelta] = None
     ) -> None:
         metrics = self._test_metrics[test]
 
-        remaining_budget = self._get_remaining_budget_duration()
-        remaining_tests = self._count_remaining_tests()
-
-        # Distribute remaining budget equally across remaining tests.
-        metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
-            remaining_budget / remaining_tests
-        )
-        self._debug_logs.append(
-            utils.StructuredLog.make(
-                message="Deadline set",
-                test=test,
-                available_budget=str(self._available_budget_duration),
-                remaining_budget=str(remaining_budget),
-                all_tests=len(self._tests_to_process),
-                remaining_tests=remaining_tests,
+        if self._is_xdist:
+            # Static allocation: equal share of total budget per test.
+            per_test_budget = self._available_budget_duration / max(
+                len(self._tests_to_process), 1
             )
-        )
+            metrics.deadline = (
+                datetime.datetime.now(datetime.timezone.utc) + per_test_budget
+            )
+            self._debug_logs.append(
+                utils.StructuredLog.make(
+                    message="Deadline set",
+                    test=test,
+                    available_budget=str(self._available_budget_duration),
+                    is_xdist=True,
+                    all_tests=len(self._tests_to_process),
+                )
+            )
+        else:
+            remaining_budget = self._get_remaining_budget_duration()
+            remaining_tests = self._count_remaining_tests()
+
+            # Distribute remaining budget equally across remaining tests.
+            metrics.deadline = datetime.datetime.now(datetime.timezone.utc) + (
+                remaining_budget / remaining_tests
+            )
+            self._debug_logs.append(
+                utils.StructuredLog.make(
+                    message="Deadline set",
+                    test=test,
+                    available_budget=str(self._available_budget_duration),
+                    remaining_budget=str(remaining_budget),
+                    all_tests=len(self._tests_to_process),
+                    remaining_tests=remaining_tests,
+                )
+            )
 
         if not timeout:
             return
@@ -438,6 +413,36 @@ class FlakyDetector:
         item.session._setupstate.stack.update(self._suspended_item_finalizers)
         self._suspended_item_finalizers.clear()
 
+    def to_serializable_metrics(self) -> typing.Dict[str, typing.Any]:
+        """Serialize metrics for transport via xdist workeroutput."""
+        return {
+            "available_budget_duration_ms": self._available_budget_duration.total_seconds()
+            * 1000,
+            "test_metrics": {
+                test: {
+                    "rerun_count": metrics.rerun_count,
+                    "total_duration_ms": metrics.total_duration.total_seconds() * 1000,
+                    "initial_setup_duration_ms": metrics.initial_setup_duration.total_seconds()
+                    * 1000,
+                    "initial_call_duration_ms": metrics.initial_call_duration.total_seconds()
+                    * 1000,
+                    "initial_teardown_duration_ms": metrics.initial_teardown_duration.total_seconds()
+                    * 1000,
+                    "prevented_timeout": metrics.prevented_timeout,
+                }
+                for test, metrics in self._test_metrics.items()
+            },
+            "over_length_tests": list(self._over_length_tests),
+            "debug_logs": [
+                {
+                    "timestamp": log.timestamp.isoformat(),
+                    "message": log.message,
+                    **log.attributes,
+                }
+                for log in self._debug_logs
+            ],
+        }
+
     def _count_remaining_tests(self) -> int:
         already_processed_tests = {
             test for test, metrics in self._test_metrics.items() if metrics.deadline
@@ -456,3 +461,161 @@ class FlakyDetector:
             self._available_budget_duration - self._get_used_budget_duration(),
             datetime.timedelta(),
         )
+
+
+@dataclasses.dataclass
+class XdistFlakyDetectionController:
+    """Manages flaky detection state on the xdist controller side."""
+
+    _context_dict: typing.Optional[typing.Dict[str, typing.Any]] = dataclasses.field(
+        default=None
+    )
+    _mode: typing.Optional[str] = dataclasses.field(default=None)
+    _aggregated_metrics: typing.Dict[str, typing.Any] = dataclasses.field(
+        default_factory=lambda: {
+            "test_metrics": {},
+            "over_length_tests": [],
+            "debug_logs": [],
+        }
+    )
+    _available_budget_duration_ms: float = dataclasses.field(default=0.0)
+
+    def extract_context_from_detector(self, detector: FlakyDetector) -> None:
+        """Extract context from an already-loaded detector for distribution."""
+        self._context_dict = dataclasses.asdict(detector._context)
+        self._mode = detector.mode
+
+    @property
+    def has_context(self) -> bool:
+        return self._context_dict is not None
+
+    def populate_workerinput(self, workerinput: typing.Dict[str, typing.Any]) -> None:
+        """Add flaky detection context to a worker's input dict."""
+        if self._context_dict is not None:
+            workerinput["flaky_detection_context"] = self._context_dict
+            workerinput["flaky_detection_mode"] = self._mode
+
+    def collect_worker_metrics(
+        self, worker_metrics: typing.Dict[str, typing.Any]
+    ) -> None:
+        """Merge metrics received from a completed worker."""
+        self._aggregated_metrics["test_metrics"].update(worker_metrics["test_metrics"])
+        self._aggregated_metrics["over_length_tests"].extend(
+            worker_metrics["over_length_tests"]
+        )
+        self._aggregated_metrics["debug_logs"].extend(worker_metrics["debug_logs"])
+
+        # Budget is the same across all workers (deterministic). Use first received.
+        if (
+            self._available_budget_duration_ms == 0.0
+            and "available_budget_duration_ms" in worker_metrics
+        ):
+            self._available_budget_duration_ms = worker_metrics[
+                "available_budget_duration_ms"
+            ]
+
+    def make_report(self) -> str:
+        """Generate terminal report from aggregated worker data."""
+        assert self._context_dict is not None
+        mode: typing.Literal["new", "unhealthy"] = (
+            self._mode  # type: ignore[assignment]
+            if self._mode in ("new", "unhealthy")
+            else "new"
+        )
+        return make_report_from_aggregated(
+            context_dict=self._context_dict,
+            mode=mode,
+            available_budget_duration_ms=self._available_budget_duration_ms,
+            aggregated_metrics=self._aggregated_metrics,
+        )
+
+
+def make_report_from_aggregated(
+    context_dict: typing.Dict[str, typing.Any],
+    mode: typing.Literal["new", "unhealthy"],
+    available_budget_duration_ms: float,
+    aggregated_metrics: typing.Dict[str, typing.Any],
+) -> str:
+    """Generate report on the controller from aggregated worker metrics."""
+    context = _FlakyDetectionContext(**context_dict)
+    test_metrics = aggregated_metrics["test_metrics"]
+    over_length_tests = aggregated_metrics["over_length_tests"]
+    debug_logs = aggregated_metrics["debug_logs"]
+
+    result = "🐛 Flaky detection"
+
+    if over_length_tests:
+        result += (
+            f"{os.linesep}- Skipped {len(over_length_tests)} "
+            f"test{'s' if len(over_length_tests) > 1 else ''}:"
+        )
+        for test in sorted(over_length_tests):
+            result += (
+                f"{os.linesep}    • '{test}' has not been tested multiple times because the name of the test "
+                f"exceeds our limit of {context.max_test_name_length} characters"
+            )
+
+    if not test_metrics:
+        result += f"{os.linesep}- No {mode} tests detected, but we are watching 👀"
+        return result
+
+    available_budget_seconds = available_budget_duration_ms / 1000
+    used_budget_ms = sum(m["total_duration_ms"] for m in test_metrics.values())
+    used_budget_seconds = used_budget_ms / 1000
+    if available_budget_seconds > 0:
+        result += (
+            f"{os.linesep}- Used {used_budget_seconds / available_budget_seconds * 100:.2f} % of the budget "
+            f"({used_budget_seconds:.2f} s/{available_budget_seconds:.2f} s)"
+        )
+    else:
+        result += f"{os.linesep}- Used {used_budget_seconds:.2f} s (budget unavailable)"
+
+    result += (
+        f"{os.linesep}- Active for {len(test_metrics)} {mode} "
+        f"test{'s' if len(test_metrics) > 1 else ''}:"
+    )
+    for test, m in sorted(test_metrics.items()):
+        if m["rerun_count"] < context.min_test_execution_count:
+            result += (
+                f"{os.linesep}    • '{test}' is too slow to be tested at least "
+                f"{context.min_test_execution_count} times within the budget"
+            )
+            continue
+
+        rerun_duration_seconds = m["total_duration_ms"] / 1000
+        if available_budget_seconds > 0:
+            result += (
+                f"{os.linesep}    • '{test}' has been tested {m['rerun_count']} "
+                f"time{'s' if m['rerun_count'] > 1 else ''} using approx. "
+                f"{rerun_duration_seconds / available_budget_seconds * 100:.2f} % of the budget "
+                f"({rerun_duration_seconds:.2f} s/{available_budget_seconds:.2f} s)"
+            )
+        else:
+            result += (
+                f"{os.linesep}    • '{test}' has been tested {m['rerun_count']} "
+                f"time{'s' if m['rerun_count'] > 1 else ''} "
+                f"({rerun_duration_seconds:.2f} s)"
+            )
+
+    tests_prevented_from_timeout = [
+        test for test, m in test_metrics.items() if m["prevented_timeout"]
+    ]
+    if tests_prevented_from_timeout:
+        result += (
+            f"{os.linesep}⚠️ Reduced reruns for the following "
+            f"test{'s' if len(tests_prevented_from_timeout) > 1 else ''} to respect 'pytest-timeout':"
+        )
+        for test in tests_prevented_from_timeout:
+            result += f"{os.linesep}    • '{test}'"
+
+        result += (
+            f"{os.linesep}To improve flaky detection and prevent fixture-level timeouts from limiting reruns, enable function-only timeouts. "
+            f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
+        )
+
+    if os.environ.get("PYTEST_MERGIFY_DEBUG") and debug_logs:
+        result += f"{os.linesep}🔎 Debug Logs"
+        for log in debug_logs:
+            result += f"{os.linesep}{json.dumps(log)}"
+
+    return result
