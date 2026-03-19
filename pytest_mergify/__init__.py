@@ -1,3 +1,4 @@
+import dataclasses
 import datetime
 import os
 import platform
@@ -33,6 +34,70 @@ class PytestMergify:
             kwargs["api_url"] = api_url
         self.mergify_ci = MergifyCIInsights(**kwargs)
 
+        # xdist controller state.
+        self._xdist_flaky_context: typing.Optional[typing.Dict[str, typing.Any]] = None
+        self._xdist_flaky_mode: typing.Optional[str] = None
+        self._xdist_aggregated_metrics: typing.Dict[str, typing.Any] = {
+            "test_metrics": {},
+            "over_length_tests": [],
+            "debug_logs": [],
+        }
+        self._xdist_available_budget_duration_ms: float = 0.0
+
+        # On xdist controller, reuse the already-loaded detector's context
+        # for distribution to workers. No extra API call needed since
+        # MergifyCIInsights.__post_init__ already calls _load_flaky_detector().
+        if _is_xdist_controller(config) and self.mergify_ci.flaky_detector:
+            self._xdist_flaky_context = dataclasses.asdict(
+                self.mergify_ci.flaky_detector._context
+            )
+            self._xdist_flaky_mode = self.mergify_ci.flaky_detector.mode
+
+        # xdist worker: load flaky detector from controller-provided context.
+        if _is_xdist_worker(config):
+            workerinput = getattr(config, "workerinput", {})
+            context = workerinput.get("flaky_detection_context")
+            mode = workerinput.get("flaky_detection_mode")
+            if context is not None and mode is not None:
+                self.mergify_ci.load_flaky_detector_from_context(context, mode)
+
+    def pytest_configure_node(self, node: typing.Any) -> None:
+        """xdist hook: distribute flaky detection context to workers."""
+        # Disable under 'each' mode to avoid duplicated budgets.
+        dist_mode = getattr(node.config.option, "dist", None)
+        if dist_mode == "each":
+            return
+
+        if self._xdist_flaky_context is not None:
+            node.workerinput["flaky_detection_context"] = self._xdist_flaky_context
+            node.workerinput["flaky_detection_mode"] = self._xdist_flaky_mode
+
+    def pytest_testnodedown(self, node: typing.Any, error: typing.Any) -> None:
+        """xdist hook: collect metrics from completed workers."""
+        workeroutput = getattr(node, "workeroutput", None)
+        if workeroutput is None:
+            return
+
+        worker_metrics = workeroutput.get("flaky_detection_metrics")
+        if worker_metrics is None:
+            return
+
+        # Merge test metrics (workers run distinct tests, no overlap).
+        self._xdist_aggregated_metrics["test_metrics"].update(
+            worker_metrics.get("test_metrics", {})
+        )
+        self._xdist_aggregated_metrics["over_length_tests"].extend(
+            worker_metrics.get("over_length_tests", [])
+        )
+        self._xdist_aggregated_metrics["debug_logs"].extend(
+            worker_metrics.get("debug_logs", [])
+        )
+
+        if "available_budget_duration_ms" in worker_metrics:
+            self._xdist_available_budget_duration_ms = worker_metrics[
+                "available_budget_duration_ms"
+            ]
+
     def pytest_terminal_summary(
         self, terminalreporter: _pytest.terminal.TerminalReporter
     ) -> None:
@@ -56,7 +121,37 @@ class PytestMergify:
             )
             return
 
-        if self.mergify_ci.flaky_detector:
+        if _is_xdist_controller(terminalreporter.config):
+            if self._xdist_flaky_context:
+                # Always show report (even if no test_metrics — shows "No new tests detected").
+                from pytest_mergify import flaky_detection
+
+                mode: typing.Literal["new", "unhealthy"] = (
+                    self._xdist_flaky_mode  # type: ignore[assignment]
+                    if self._xdist_flaky_mode in ("new", "unhealthy")
+                    else "new"
+                )
+                terminalreporter.write_line(
+                    flaky_detection.make_report_from_aggregated(
+                        context_dict=self._xdist_flaky_context,
+                        mode=mode,
+                        available_budget_duration_ms=self._xdist_available_budget_duration_ms,
+                        aggregated_metrics=self._xdist_aggregated_metrics,
+                    )
+                )
+            elif self.mergify_ci.flaky_detector_error_message:
+                terminalreporter.write_line(
+                    f"""⚠️ Flaky detection couldn't be enabled because of an error.
+
+Common issues:
+  • Your 'MERGIFY_TOKEN' might not be set or could be invalid
+  • There might be a network connectivity issue with the Mergify API
+
+📚 Documentation: https://docs.mergify.com/ci-insights/test-frameworks/pytest/
+🔍 Details: {self.mergify_ci.flaky_detector_error_message}""",
+                    yellow=True,
+                )
+        elif self.mergify_ci.flaky_detector:
             terminalreporter.write_line(self.mergify_ci.flaky_detector.make_report())
         elif self.mergify_ci.flaky_detector_error_message:
             terminalreporter.write_line(
@@ -147,6 +242,17 @@ Common issues:
         self,
         session: _pytest.main.Session,
     ) -> typing.Generator[None, None, None]:
+        # xdist worker: export metrics via workeroutput (independent of tracer).
+        if _is_xdist_worker(session.config) and self.mergify_ci.flaky_detector:
+            workeroutput = getattr(session.config, "workeroutput", None)
+            if workeroutput is not None:
+                metrics = self.mergify_ci.flaky_detector.to_serializable_metrics()
+                metrics["available_budget_duration_ms"] = (
+                    self.mergify_ci.flaky_detector._available_budget_duration.total_seconds()
+                    * 1000
+                )
+                workeroutput["flaky_detection_metrics"] = metrics
+
         if not self.tracer:
             yield
             return
@@ -462,3 +568,15 @@ def _should_skip_item(item: _pytest.nodes.Item) -> bool:
 
     # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
     return bool(eval(condition_code, globals_))
+
+
+def _is_xdist_controller(config: _pytest.config.Config) -> bool:
+    """Check if running as xdist controller (not a worker)."""
+    return config.pluginmanager.has_plugin("dsession") and not hasattr(
+        config, "workerinput"
+    )
+
+
+def _is_xdist_worker(config: _pytest.config.Config) -> bool:
+    """Check if running as xdist worker."""
+    return hasattr(config, "workerinput")
