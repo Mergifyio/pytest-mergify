@@ -189,6 +189,9 @@ class MergifyCIInsights:
             or self.repo_name is None
             # NOTE(remyduthu): Hide behind a feature flag for now.
             or not utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
+            # On xdist workers the detector is loaded from the controller-
+            # provided context, so skip the redundant per-worker API call.
+            or os.environ.get("PYTEST_XDIST_WORKER") is not None
         ):
             return
 
@@ -197,6 +200,22 @@ class MergifyCIInsights:
                 token=self.token,
                 url=self.api_url,
                 full_repository_name=self.repo_name,
+                mode=mode,
+            )
+        except Exception as exception:
+            self.flaky_detector_error_message = (
+                f"Could not load flaky detector: {str(exception)}"
+            )
+
+    def load_flaky_detector_from_context(
+        self,
+        context_dict: typing.Dict[str, typing.Any],
+        mode: typing.Literal["new", "unhealthy"],
+    ) -> None:
+        """Construct FlakyDetector from pre-fetched context (xdist worker path)."""
+        try:
+            self.flaky_detector = flaky_detection.FlakyDetector.from_context(
+                context_dict=context_dict,
                 mode=mode,
             )
         except Exception as exception:
