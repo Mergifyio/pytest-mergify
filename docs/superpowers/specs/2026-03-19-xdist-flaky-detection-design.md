@@ -16,7 +16,7 @@ The flaky detection system does not support `pytest-xdist`:
 - **Approach:** Controller-orchestrated with pre-computed per-test deadlines.
 - **IPC:** xdist built-in `workerinput`/`workeroutput`.
 - **Budget model:** Global budget, static per-test allocation under xdist. Dynamic deadlines preserved for non-xdist.
-- **Scheduling:** Target `load` (default) mode. Other modes should not crash.
+- **Scheduling:** Target `load` (default) mode. Other modes should not crash. Under `each` mode (every test runs on every worker), flaky detection is disabled to avoid duplicated budgets.
 
 ## Architecture
 
@@ -69,7 +69,7 @@ All workers collect the same full test list (xdist verifies this). Budget comput
 ### 3. Test execution (`pytest_runtest_protocol`)
 
 - Identical to current logic: initial run, set deadline, rerun loop.
-- `set_test_deadline` uses static allocation: `total_budget / num_tests_to_process`.
+- `set_test_deadline` uses static allocation: `total_budget / global_num_tests_to_process` where the denominator is the **global** count of tests to process (computed from the full collection, not from the worker's assigned subset). Workers don't know upfront which tests they'll run (xdist dispatches dynamically), but the per-test budget is the same regardless.
 
 ### 4. Metrics export (`pytest_sessionfinish`)
 
@@ -102,7 +102,9 @@ config.workeroutput["flaky_detection_metrics"] = {
         "tests/test_foo.py::test_bar": {
             "rerun_count": int,
             "total_duration_ms": float,
-            "initial_duration_ms": float,
+            "initial_setup_duration_ms": float,
+            "initial_call_duration_ms": float,
+            "initial_teardown_duration_ms": float,
             "prevented_timeout": bool,
         },
     },
@@ -111,11 +113,15 @@ config.workeroutput["flaky_detection_metrics"] = {
 }
 ```
 
+The three initial duration sub-fields are needed because `make_report` uses `initial_duration` (their sum) and `is_test_too_slow` compares it against remaining time. Serializing them separately preserves full fidelity.
+
 ## FlakyDetector Changes
 
 ### New classmethod
 
-`FlakyDetector.from_context(context_dict, mode)` constructs from serialized context, skipping the API call. `token`, `url`, `full_repository_name` are not needed on workers.
+`FlakyDetector.from_context(context_dict, mode)` is a `@classmethod` that constructs a `FlakyDetector` from a serialized context dict, skipping `_fetch_context()`. It sets `token`, `url`, and `full_repository_name` to empty strings (the dataclass fields remain required, but these values are unused on workers). The `_context` field is populated directly from the dict.
+
+On the controller side, `FlakyDetector` is **not** instantiated. The controller only holds the raw context dict (for `workerinput`) and aggregated metrics (from `workeroutput`). The report is generated via `make_report_from_aggregated`, which is a standalone function that operates on plain dicts.
 
 ### Deadline computation
 
