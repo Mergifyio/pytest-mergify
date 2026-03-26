@@ -195,6 +195,22 @@ class MergifyCIInsights:
                 f"Could not load flaky detector: {str(exception)}"
             )
 
+    def load_flaky_detector_from_context(
+        self,
+        context_dict: typing.Dict[str, typing.Any],
+        mode: typing.Literal["new", "unhealthy"],
+    ) -> None:
+        """Construct FlakyDetector from pre-fetched context (xdist worker path)."""
+        try:
+            self.flaky_detector = flaky_detection.FlakyDetector.from_context(
+                context_dict=context_dict,
+                mode=mode,
+            )
+        except Exception as exception:
+            self.flaky_detector_error_message = (
+                f"Could not load flaky detector: {str(exception)}"
+            )
+
     def mark_test_as_quarantined_if_needed(self, item: _pytest.nodes.Item) -> bool:
         """
         Returns `True` if the test was marked as quarantined, otherwise returns `False`.
