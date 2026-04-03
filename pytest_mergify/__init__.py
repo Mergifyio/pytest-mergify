@@ -71,15 +71,17 @@ Common issues:
                 yellow=True,
             )
 
-        # CI Insights Quarantine warning logs
+        # Mergify Test Insights Quarantine warning logs
         if not self.mergify_ci.branch_name:
             terminalreporter.write_line(
-                "No valid branch name found, unable to setup CI Insights Quarantine",
+                "No valid branch name found, unable to set up Mergify Test Insights Quarantine",
                 yellow=True,
             )
 
         if self.mergify_ci.quarantined_tests is None:
-            terminalreporter.write_line("CI Insights Quarantine could not be setup")
+            terminalreporter.write_line(
+                "Mergify Test Insights Quarantine could not be set up"
+            )
         elif self.mergify_ci.quarantined_tests is not None:
             if self.mergify_ci.quarantined_tests.init_error_msg:
                 terminalreporter.write_line(
@@ -90,7 +92,7 @@ Common issues:
                     self.mergify_ci.quarantined_tests.quarantined_tests_report()
                 )
 
-        # CI Insights Traces upload logs
+        # Mergify Test Insights Traces upload logs
         if self.mergify_ci.tracer_provider is None:
             terminalreporter.write_line(
                 "Mergify Tracer didn't start for unexpected reason (please contact Mergify support); test results will not be uploaded",
