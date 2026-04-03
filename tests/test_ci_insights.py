@@ -685,3 +685,35 @@ def test_flaky_detector_prepare_for_session_in_unhealthy_mode(
         plugin.mergify_ci.flaky_detector._available_budget_duration.total_seconds()
         == datetime.timedelta(seconds=5).total_seconds()
     )
+
+
+@responses.activate
+def test_empty_base_ref_falls_through_to_head_ref(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    """When `GITHUB_BASE_REF` is empty (push/scheduled runs), `branch_name`
+    should fall through to the HEAD ref so quarantine still works."""
+    _set_test_environment(monkeypatch, mode="unhealthy")
+
+    # Set an empty `GITHUB_BASE_REF` to simulate push runs where the env var
+    # exists but is empty.
+    monkeypatch.setenv("GITHUB_BASE_REF", "")
+
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock()
+
+    pytester.makepyfile(
+        """
+        def test_foo():
+            assert True
+        """
+    )
+
+    plugin = pytest_mergify.PytestMergify()
+    pytester.runpytest_inprocess(plugins=[plugin])
+
+    # `branch_name` should come from HEAD ref, not the empty base ref.
+    assert plugin.mergify_ci.branch_name == "main"
+    assert plugin.mergify_ci.flaky_detector is not None
+    assert plugin.mergify_ci.flaky_detector.mode == "unhealthy"
