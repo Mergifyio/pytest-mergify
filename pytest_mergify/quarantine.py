@@ -24,7 +24,7 @@ class Quarantine:
         try:
             owner, repository = self.repo_name.split("/")
         except ValueError:
-            self.init_error_msg = f"Repository name '{self.repo_name}' has an unexpected format (expected 'owner/repository'), skipping CI Insights Quarantine setup"
+            self.init_error_msg = f"Repository name '{self.repo_name}' has an unexpected format (expected 'owner/repository'), skipping Mergify Test Insights Quarantine initialization"
             return
 
         url = f"{self.api_url}/v1/ci/{owner}/repositories/{repository}/quarantines"
@@ -41,7 +41,7 @@ class Quarantine:
             return
 
         if quarantine_resp.status_code == 402:
-            # No CI Insights Quarantine subscription, skip it.
+            # No Mergify Test Insights Quarantine subscription, skip it.
             return
 
         try:
@@ -84,7 +84,7 @@ class Quarantine:
     def mark_test_as_quarantined(self, test_item: _pytest.nodes.Item) -> None:
         test_item.add_marker(
             pytest.mark.xfail(
-                reason="Test is quarantined from Mergify CI Insights",
+                reason="Test is quarantined from Mergify Test Insights",
                 raises=None,
                 run=True,
                 strict=False,
