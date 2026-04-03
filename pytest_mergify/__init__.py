@@ -19,6 +19,7 @@ import pytest_timeout
 from opentelemetry.semconv.trace import SpanAttributes
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
+from pytest_mergify import flaky_detection as _flaky_detection
 from pytest_mergify import utils
 from pytest_mergify.ci_insights import MergifyCIInsights
 
@@ -32,6 +33,48 @@ class PytestMergify:
         if api_url is not None:
             kwargs["api_url"] = api_url
         self.mergify_ci = MergifyCIInsights(**kwargs)
+
+        self._xdist_controller = _flaky_detection.XdistFlakyDetectionController()
+
+        if _is_xdist_worker(config):
+            self._load_flaky_detector_from_xdist_worker(config)
+
+    def _load_flaky_detector_from_xdist_worker(
+        self, config: _pytest.config.Config
+    ) -> None:
+        """Load flaky detector from controller-provided context on xdist workers."""
+        workerinput = getattr(config, "workerinput", {})
+        context = workerinput.get("flaky_detection_context")
+        mode = workerinput.get("flaky_detection_mode")
+        if context is not None and mode is not None:
+            self.mergify_ci.load_flaky_detector_from_context(context, mode)
+
+    def pytest_configure_node(self, node: typing.Any) -> None:
+        """xdist hook: distribute flaky detection context to workers."""
+        # Disable under 'each' mode to avoid duplicated budgets.
+        if getattr(node.config.option, "dist", None) == "each":
+            return
+
+        # Lazily extract context on first node setup to avoid timing issues
+        # with xdist's dsession registration.
+        if not self._xdist_controller.has_context and self.mergify_ci.flaky_detector:
+            self._xdist_controller.extract_context_from_detector(
+                self.mergify_ci.flaky_detector
+            )
+
+        self._xdist_controller.populate_workerinput(node.workerinput)
+
+    def pytest_testnodedown(self, node: typing.Any, error: typing.Any) -> None:
+        """xdist hook: collect metrics from completed workers."""
+        workeroutput = getattr(node, "workeroutput", None)
+        if workeroutput is None:
+            return
+
+        worker_metrics = workeroutput.get("flaky_detection_metrics")
+        if worker_metrics is None:
+            return
+
+        self._xdist_controller.collect_worker_metrics(worker_metrics)
 
     def pytest_terminal_summary(
         self, terminalreporter: _pytest.terminal.TerminalReporter
@@ -56,19 +99,18 @@ class PytestMergify:
             )
             return
 
-        if self.mergify_ci.flaky_detector:
+        if _is_xdist_controller(terminalreporter.config):
+            if self._xdist_controller.has_context:
+                terminalreporter.write_line(self._xdist_controller.make_report())
+            elif self.mergify_ci.flaky_detector_error_message:
+                _write_flaky_detector_error(
+                    terminalreporter, self.mergify_ci.flaky_detector_error_message
+                )
+        elif self.mergify_ci.flaky_detector:
             terminalreporter.write_line(self.mergify_ci.flaky_detector.make_report())
         elif self.mergify_ci.flaky_detector_error_message:
-            terminalreporter.write_line(
-                f"""⚠️ Flaky detection couldn't be enabled because of an error.
-
-Common issues:
-  • Your 'MERGIFY_TOKEN' might not be set or could be invalid
-  • There might be a network connectivity issue with the Mergify API
-
-📚 Documentation: https://docs.mergify.com/ci-insights/test-frameworks/pytest/
-🔍 Details: {self.mergify_ci.flaky_detector_error_message}""",
-                yellow=True,
+            _write_flaky_detector_error(
+                terminalreporter, self.mergify_ci.flaky_detector_error_message
             )
 
         # CI Insights Quarantine warning logs
@@ -147,6 +189,14 @@ Common issues:
         self,
         session: _pytest.main.Session,
     ) -> typing.Generator[None, None, None]:
+        # xdist worker: export metrics via workeroutput (independent of tracer).
+        if _is_xdist_worker(session.config) and self.mergify_ci.flaky_detector:
+            workeroutput = getattr(session.config, "workeroutput", None)
+            if workeroutput is not None:
+                workeroutput["flaky_detection_metrics"] = (
+                    self.mergify_ci.flaky_detector.to_serializable_metrics()
+                )
+
         if not self.tracer:
             yield
             return
@@ -198,60 +248,90 @@ Common issues:
         # flow. Returning `True` means we took care of running the protocol.
         # See:
         # https://docs.pytest.org/en/7.1.x/how-to/writing_hook_functions.html#firstresult
-        if not self.tracer:
+        if not self.tracer and not self.mergify_ci.flaky_detector:
             return None
+
+        if self.tracer:
+            return self._run_test_protocol_with_tracing(item, nextitem)
+
+        return self._run_test_protocol(item, nextitem)
+
+    def _run_test_protocol_with_tracing(
+        self,
+        item: _pytest.nodes.Item,
+        nextitem: typing.Optional[_pytest.nodes.Item],
+    ) -> bool:
+        """Run test protocol with tracing and optional flaky detection."""
+        assert self.tracer is not None
 
         with self.tracer.start_as_current_span(
             name=item.nodeid,
             context=opentelemetry.trace.set_span_in_context(self.session_span),
             attributes=self._get_item_attributes(item),
         ) as current_span:
-            distinct_outcomes = set()
-
-            # Execute the initial protocol to register its duration, which lets
-            # us calculate the number of reruns.
-            for report in _pytest.runner.runtestprotocol(
-                item=item, nextitem=nextitem, log=True
-            ):
-                distinct_outcomes.add(report.outcome)
-
-            if (
-                not self.mergify_ci.flaky_detector
-                or not self.mergify_ci.flaky_detector.is_rerunning_test(item.nodeid)
-            ):
-                return True
-
-            self.mergify_ci.flaky_detector.set_test_deadline(
-                test=item.nodeid,
-                timeout=datetime.timedelta(seconds=timeout_seconds)
-                if (timeout_seconds := pytest_timeout._get_item_settings(item).timeout)
-                else None,
+            distinct_outcomes, rerun_count = self._execute_test_with_reruns(
+                item, nextitem
             )
 
-            if self.mergify_ci.flaky_detector.is_test_too_slow(item.nodeid):
-                # We won't be able to detect flakiness if the test is too slow,
-                # so we stop here.
-                return True
-
-            rerun_count = 0
-            while not item.keywords.get("is_last_rerun"):
-                item.keywords["is_last_rerun"] = (
-                    self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid)
-                )
-
-                # Always execute a last rerun before stopping to properly
-                # restore finalizers. Otherwise, it can lead to resource leaks.
-                for report in self._reruntestprotocol(item, nextitem):
-                    distinct_outcomes.add(report.outcome)
-
-                rerun_count += 1
-
-            if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
-                current_span.set_attribute("cicd.test.flaky", True)
-
-            current_span.set_attribute("cicd.test.rerun_count", rerun_count)
+            if rerun_count > 0:
+                if "failed" in distinct_outcomes and "passed" in distinct_outcomes:
+                    current_span.set_attribute("cicd.test.flaky", True)
+                current_span.set_attribute("cicd.test.rerun_count", rerun_count)
 
         return True
+
+    def _run_test_protocol(
+        self,
+        item: _pytest.nodes.Item,
+        nextitem: typing.Optional[_pytest.nodes.Item],
+    ) -> bool:
+        """Run test protocol without tracing (e.g. xdist workers without tracer)."""
+        self._execute_test_with_reruns(item, nextitem)
+        return True
+
+    def _execute_test_with_reruns(
+        self,
+        item: _pytest.nodes.Item,
+        nextitem: typing.Optional[_pytest.nodes.Item],
+    ) -> typing.Tuple[typing.Set[str], int]:
+        """Run initial test and flaky detection reruns. Returns (outcomes, rerun_count)."""
+        distinct_outcomes: typing.Set[str] = set()
+
+        for report in _pytest.runner.runtestprotocol(
+            item=item, nextitem=nextitem, log=True
+        ):
+            distinct_outcomes.add(report.outcome)
+
+        if (
+            not self.mergify_ci.flaky_detector
+            or not self.mergify_ci.flaky_detector.is_rerunning_test(item.nodeid)
+        ):
+            return distinct_outcomes, 0
+
+        self.mergify_ci.flaky_detector.set_test_deadline(
+            test=item.nodeid,
+            timeout=datetime.timedelta(seconds=timeout_seconds)
+            if (timeout_seconds := pytest_timeout._get_item_settings(item).timeout)
+            else None,
+        )
+
+        if self.mergify_ci.flaky_detector.is_test_too_slow(item.nodeid):
+            return distinct_outcomes, 0
+
+        rerun_count = 0
+        while not item.keywords.get("is_last_rerun"):
+            item.keywords["is_last_rerun"] = (
+                self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid)
+            )
+
+            # Always execute a last rerun before stopping to properly
+            # restore finalizers. Otherwise, it can lead to resource leaks.
+            for report in self._reruntestprotocol(item, nextitem):
+                distinct_outcomes.add(report.outcome)
+
+            rerun_count += 1
+
+        return distinct_outcomes, rerun_count
 
     def _reruntestprotocol(
         self, item: _pytest.nodes.Item, nextitem: typing.Optional[_pytest.nodes.Item]
@@ -462,3 +542,32 @@ def _should_skip_item(item: _pytest.nodes.Item) -> bool:
 
     # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
     return bool(eval(condition_code, globals_))
+
+
+def _write_flaky_detector_error(
+    terminalreporter: _pytest.terminal.TerminalReporter,
+    error_message: str,
+) -> None:
+    terminalreporter.write_line(
+        f"""⚠️ Flaky detection couldn't be enabled because of an error.
+
+Common issues:
+  • Your 'MERGIFY_TOKEN' might not be set or could be invalid
+  • There might be a network connectivity issue with the Mergify API
+
+📚 Documentation: https://docs.mergify.com/ci-insights/test-frameworks/pytest/
+🔍 Details: {error_message}""",
+        yellow=True,
+    )
+
+
+def _is_xdist_controller(config: _pytest.config.Config) -> bool:
+    """Check if running as xdist controller (not a worker)."""
+    return config.pluginmanager.has_plugin("dsession") and not hasattr(
+        config, "workerinput"
+    )
+
+
+def _is_xdist_worker(config: _pytest.config.Config) -> bool:
+    """Check if running as xdist worker."""
+    return hasattr(config, "workerinput")
