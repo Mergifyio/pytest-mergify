@@ -151,16 +151,23 @@ class MergifyCIInsights:
         self.tracer_provider.add_span_processor(span_processor)
         self.tracer = self.tracer_provider.get_tracer("pytest-mergify")
 
-        # Retrieve the branch name based on the detected resources's attributes
+        # Retrieve the branch name, preferring base ref (target branch) over head ref.
         branch_name = resource.attributes.get(
             vcs_attributes.VCS_REF_BASE_NAME,
             resource.attributes.get(vcs_attributes.VCS_REF_HEAD_NAME),
         )
         if branch_name is not None:
-            # `str` cast just for `mypy`
+            # `str` cast just for `mypy`.
             self.branch_name = str(branch_name)
 
-        self._load_flaky_detector()
+        self._load_flaky_detector(
+            # A base branch indicates a PR context. Use `new` mode for PRs to
+            # detect newly flaky tests, `unhealthy` for push/scheduled runs to
+            # focus on known problematic tests.
+            mode="new"
+            if resource.attributes.get(vcs_attributes.VCS_REF_BASE_NAME)
+            else "unhealthy",
+        )
 
         if self.token and self.repo_name and self.branch_name:
             self.quarantined_tests = pytest_mergify.quarantine.Quarantine(
@@ -170,7 +177,10 @@ class MergifyCIInsights:
                 self.branch_name,
             )
 
-    def _load_flaky_detector(self) -> None:
+    def _load_flaky_detector(
+        self,
+        mode: typing.Literal["new", "unhealthy"],
+    ) -> None:
         if (
             self.token is None
             or self.repo_name is None
@@ -184,11 +194,7 @@ class MergifyCIInsights:
                 token=self.token,
                 url=self.api_url,
                 full_repository_name=self.repo_name,
-                # NOTE(remyduthu): Choose the mode based on the presence of a PR
-                # context. If we can derive a `branch_name`, we target `new`
-                # tests. If not (e.g. scheduled runs), we fall back to
-                # `unhealthy` mode to focus on known problematic tests.
-                mode="new" if self.branch_name else "unhealthy",
+                mode=mode,
             )
         except Exception as exception:
             self.flaky_detector_error_message = (
