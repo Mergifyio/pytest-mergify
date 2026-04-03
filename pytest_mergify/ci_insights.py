@@ -151,11 +151,12 @@ class MergifyCIInsights:
         self.tracer_provider.add_span_processor(span_processor)
         self.tracer = self.tracer_provider.get_tracer("pytest-mergify")
 
-        # Retrieve the branch name, preferring base ref (target branch) over head ref.
+        # Retrieve the branch name, preferring base ref (target branch) over
+        # head ref. `or` ensures an empty base ref (e.g. `GITHUB_BASE_REF=""` on
+        # push runs) falls through to the head ref.
         branch_name = resource.attributes.get(
-            vcs_attributes.VCS_REF_BASE_NAME,
-            resource.attributes.get(vcs_attributes.VCS_REF_HEAD_NAME),
-        )
+            vcs_attributes.VCS_REF_BASE_NAME
+        ) or resource.attributes.get(vcs_attributes.VCS_REF_HEAD_NAME)
         if branch_name is not None:
             # `str` cast just for `mypy`.
             self.branch_name = str(branch_name)
