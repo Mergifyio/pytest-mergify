@@ -21,20 +21,20 @@ def _set_test_environment(
     monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setenv("GITHUB_BASE_REF", "main")
     monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
     monkeypatch.setenv("MERGIFY_API_URL", "https://example.com")
     monkeypatch.setenv("MERGIFY_TOKEN", "my_token")
 
-    if mode == "unhealthy":
-        # Simulate absence of a PR context: without `GITHUB_BASE_REF` and branch
-        # ref variables, `MergifyCIInsights.branch_name` can't be derived,
-        # forcing the flaky detector to fall back to `unhealthy` mode. This
-        # explicitly exercises the fallback path used when no PR metadata is
-        # available.
+    if mode == "new":
+        # Simulate a PR context: `GITHUB_BASE_REF` is only set for PRs and is
+        # the signal used to select `new` mode.
+        monkeypatch.setenv("GITHUB_BASE_REF", "main")
+    else:
+        # Simulate a push/scheduled context: no base ref, head ref comes from
+        # `GITHUB_REF_NAME`.
         monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
         monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
-        monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+        monkeypatch.setenv("GITHUB_REF_NAME", "main")
 
 
 def _make_quarantine_mock() -> None:
