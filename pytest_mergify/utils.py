@@ -7,13 +7,14 @@ import subprocess
 import typing
 
 CIProviderT = typing.Literal[
-    "github_actions", "circleci", "pytest_mergify_suite", "jenkins"
+    "github_actions", "circleci", "pytest_mergify_suite", "jenkins", "buildkite"
 ]
 
 SUPPORTED_CIs: typing.Dict[str, CIProviderT] = {
     "GITHUB_ACTIONS": "github_actions",
     "CIRCLECI": "circleci",
     "JENKINS_URL": "jenkins",
+    "BUILDKITE": "buildkite",
     "_PYTEST_MERGIFY_TEST": "pytest_mergify_suite",
 }
 
@@ -117,6 +118,9 @@ def get_repository_name() -> typing.Optional[str]:
 
     if provider == "circleci":
         return get_repository_name_from_env_url("CIRCLE_REPOSITORY_URL")
+
+    if provider == "buildkite":
+        return get_repository_name_from_env_url("BUILDKITE_REPO")
 
     if provider == "pytest_mergify_suite":
         return "Mergifyio/pytest-mergify"
