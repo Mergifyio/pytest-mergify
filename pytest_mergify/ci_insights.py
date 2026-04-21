@@ -18,6 +18,7 @@ import pytest_mergify.resources.ci as resources_ci
 import pytest_mergify.resources.git as resources_git
 import pytest_mergify.resources.github_actions as resources_gha
 import pytest_mergify.resources.jenkins as resources_jenkins
+import pytest_mergify.resources.buildkite as resources_buildkite
 import pytest_mergify.resources.mergify as resources_mergify
 import pytest_mergify.resources.pytest as resources_pytest
 from pytest_mergify import flaky_detection, utils
@@ -133,6 +134,7 @@ class MergifyCIInsights:
                 resources_ci.CIResourceDetector(),
                 resources_gha.GitHubActionsResourceDetector(),
                 resources_jenkins.JenkinsResourceDetector(),
+                resources_buildkite.BuildkiteResourceDetector(),
                 resources_pytest.PytestResourceDetector(),
                 resources_mergify.MergifyResourceDetector(),
             ]
