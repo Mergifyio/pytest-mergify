@@ -27,32 +27,59 @@ class Quarantine:
             self.init_error_msg = f"Repository name '{self.repo_name}' has an unexpected format (expected 'owner/repository'), skipping Mergify Test Insights Quarantine initialization"
             return
 
-        url = f"{self.api_url}/v1/ci/{owner}/repositories/{repository}/quarantines"
+        url: typing.Optional[str] = (
+            f"{self.api_url}/v1/ci/{owner}/repositories/{repository}/quarantines"
+        )
+        # Filters and per_page go on the first request only; for subsequent
+        # pages the URL comes verbatim from the RFC 5988 `next` link and
+        # carries everything the server wants on the next call.
+        params: typing.Optional[typing.Dict[str, typing.Any]] = {
+            "branch": self.branch_name,
+            "per_page": 100,
+        }
+        headers = {"Authorization": f"Bearer {self.token}"}
+        quarantined_tests: typing.List[str] = []
+        # Guard against a buggy server (or stale CI proxy) returning a `next`
+        # link that loops back to a URL we have already fetched.
+        seen_urls: typing.Set[str] = set()
 
-        try:
-            quarantine_resp: requests.Response = requests.get(
-                url,
-                headers={"Authorization": f"Bearer {self.token}"},
-                params={"branch": self.branch_name},
-                timeout=10,
+        while url is not None:
+            if url in seen_urls:
+                self.init_error_msg = "Mergify's API returned a cyclic `next` link, aborting. Tests won't be quarantined."
+                return
+            seen_urls.add(url)
+
+            try:
+                quarantine_resp: requests.Response = requests.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=10,
+                )
+            except requests.RequestException as exc:
+                self.init_error_msg = f"Failed to connect to Mergify's API, tests won't be quarantined. Error: {str(exc)}"
+                return
+
+            if quarantine_resp.status_code == 402:
+                # No Mergify Test Insights Quarantine subscription, skip it.
+                return
+
+            try:
+                quarantine_resp.raise_for_status()
+            except requests.HTTPError as exc:
+                self.init_error_msg = f"Error when querying Mergify's API, tests won't be quarantined. Error: {str(exc)}"
+                return
+
+            quarantined_tests.extend(
+                qtest["test_name"]
+                for qtest in quarantine_resp.json()["quarantined_tests"]
             )
-        except requests.RequestException as exc:
-            self.init_error_msg = f"Failed to connect to Mergify's API, tests won't be quarantined. Error: {str(exc)}"
-            return
 
-        if quarantine_resp.status_code == 402:
-            # No Mergify Test Insights Quarantine subscription, skip it.
-            return
+            next_link = quarantine_resp.links.get("next")
+            url = next_link["url"] if next_link else None
+            params = None
 
-        try:
-            quarantine_resp.raise_for_status()
-        except requests.HTTPError as exc:
-            self.init_error_msg = f"Error when querying Mergify's API, tests won't be quarantined. Error: {str(exc)}"
-            return
-
-        self.quarantined_tests = [
-            qtest["test_name"] for qtest in quarantine_resp.json()["quarantined_tests"]
-        ]
+        self.quarantined_tests = quarantined_tests
 
     def __contains__(self, item: _pytest.nodes.Item) -> bool:
         return item.nodeid in self.quarantined_tests
