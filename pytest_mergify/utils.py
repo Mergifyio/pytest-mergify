@@ -2,6 +2,7 @@ import dataclasses
 import datetime
 import json
 import os
+import pathlib
 import re
 import subprocess
 import typing
@@ -186,3 +187,38 @@ def is_env_truthy(key: str) -> bool:
         "on",
         "1",
     }
+
+
+def is_draft_pull_request() -> bool:
+    """Returns `True` when the current GitHub Actions run targets a draft pull
+    request (e.g. a Mergify merge-queue batch pull request), `False` otherwise.
+
+    Draft pull requests run CI but must not spend extra CI budget on
+    flaky-detection reruns.
+    """
+    if os.getenv("GITHUB_EVENT_NAME") not in ("pull_request", "pull_request_target"):
+        return False
+
+    event_raw_path = os.getenv("GITHUB_EVENT_PATH")
+    if not event_raw_path:
+        return False
+
+    event_path = pathlib.Path(event_raw_path)
+    if not event_path.is_file():
+        return False
+
+    try:
+        event = json.loads(event_path.read_bytes())
+    except (OSError, ValueError):
+        # A malformed or unreadable event payload must not crash the plugin;
+        # keep flaky detection enabled in that case.
+        return False
+
+    if not isinstance(event, dict):
+        return False
+
+    pull_request = event.get("pull_request")
+    if not isinstance(pull_request, dict):
+        return False
+
+    return bool(pull_request.get("draft", False))

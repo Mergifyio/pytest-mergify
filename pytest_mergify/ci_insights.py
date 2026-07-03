@@ -192,6 +192,12 @@ class MergifyCIInsights:
         ):
             return
 
+        # Draft pull requests (e.g. Mergify merge-queue batch PRs) run CI but
+        # must not spend extra CI budget on reruns, so skip flaky detection on
+        # them. Non-draft PRs and push/scheduled runs are unaffected.
+        if utils.is_draft_pull_request():
+            return
+
         try:
             self.flaky_detector = flaky_detection.FlakyDetector(
                 token=self.token,

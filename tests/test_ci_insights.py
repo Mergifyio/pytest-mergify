@@ -1,4 +1,6 @@
 import datetime
+import json
+import pathlib
 import re
 import typing
 
@@ -24,6 +26,11 @@ def _set_test_environment(
     monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
     monkeypatch.setenv("MERGIFY_API_URL", "https://example.com")
     monkeypatch.setenv("MERGIFY_TOKEN", "my_token")
+
+    # Isolate the ambient GitHub event so the draft-PR gate does not leak into
+    # these tests (e.g. when the suite itself runs on a draft pull request).
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
 
     if mode == "new":
         # Simulate a PR context: `GITHUB_BASE_REF` is only set for PRs and is
@@ -129,6 +136,30 @@ def test_load_flaky_detection_error_without_existing_tests(
         "No existing tests found for 'Mergifyio/pytest-mergify' repository"
         in client.flaky_detector_error_message
     )
+
+
+@responses.activate
+def test_flaky_detection_skipped_on_draft_pull_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+
+    event_file = tmp_path / "event.json"
+    event_file.write_text(
+        json.dumps({"pull_request": {"draft": True, "head": {"sha": "abc123"}}})
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
+
+    client = _make_test_client()
+
+    # Flaky detection is disabled, so no reruns consume CI budget on draft PRs.
+    assert client.flaky_detector is None
+    assert client.flaky_detector_error_message is None
+    # Other features remain active on draft PRs.
+    assert client.quarantined_tests is not None
 
 
 @responses.activate
