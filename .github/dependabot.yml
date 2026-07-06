@@ -4,7 +4,9 @@ updates:
     directory: /
     schedule:
       interval: daily
-      time: 09:00
+      # Dependabot reads a bare 09:00 as a YAML 1.1 sexagesimal integer and
+      # rejects it; the quotes force a string (yamllint 1.2 deems them redundant).
+      time: "09:00"  # yamllint disable-line rule:quoted-strings
       timezone: Europe/Paris
     open-pull-requests-limit: 10
     cooldown:
@@ -13,7 +15,7 @@ updates:
     directory: /
     schedule:
       interval: daily
-      time: 09:00
+      time: "09:00"  # yamllint disable-line rule:quoted-strings
       timezone: Europe/Paris
     cooldown:
       default-days: 7
