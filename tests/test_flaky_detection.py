@@ -8,6 +8,7 @@ import pytest
 
 import pytest_mergify
 from pytest_mergify import flaky_detection
+from pytest_mergify import utils
 
 _NOW = datetime.datetime(
     year=2025,
@@ -27,6 +28,12 @@ class InitializedFlakyDetector(flaky_detection.FlakyDetector):
         self.full_repository_name = ""
         self.mode = "new"
         self._test_metrics = {}
+        self._over_length_tests = set()
+        self._available_budget_duration = datetime.timedelta()
+        self._tests_to_process = []
+        self._suspended_item_finalizers = {}
+        self._debug_logs = []
+        self._is_xdist = False
 
     def __post_init__(self) -> None:
         pass
@@ -193,3 +200,149 @@ def test_flaky_detector_get_remaining_budget_duration(
     detector._available_budget_duration = available_budget_duration
     detector._test_metrics = test_metrics
     assert expected == detector._get_remaining_budget_duration()
+
+
+def test_flaky_detector_to_serializable_metrics() -> None:
+    detector = InitializedFlakyDetector()
+    detector._context = _make_flaky_detection_context(max_test_name_length=100)
+    detector._test_metrics = {
+        "test_foo": flaky_detection._TestMetrics(
+            initial_setup_duration=datetime.timedelta(milliseconds=100),
+            initial_call_duration=datetime.timedelta(milliseconds=200),
+            initial_teardown_duration=datetime.timedelta(milliseconds=50),
+            rerun_count=3,
+            prevented_timeout=True,
+            total_duration=datetime.timedelta(milliseconds=1050),
+        ),
+    }
+    detector._over_length_tests = {"test_long_name"}
+    detector._debug_logs = [
+        utils.StructuredLog.make(message="test log", key="value"),
+    ]
+
+    result = detector.to_serializable_metrics()
+
+    assert result["test_metrics"]["test_foo"]["rerun_count"] == 3
+    assert result["test_metrics"]["test_foo"]["total_duration_ms"] == 1050.0
+    assert result["test_metrics"]["test_foo"]["initial_setup_duration_ms"] == 100.0
+    assert result["test_metrics"]["test_foo"]["initial_call_duration_ms"] == 200.0
+    assert result["test_metrics"]["test_foo"]["initial_teardown_duration_ms"] == 50.0
+    assert result["test_metrics"]["test_foo"]["prevented_timeout"] is True
+    assert result["over_length_tests"] == ["test_long_name"]
+    assert len(result["debug_logs"]) == 1
+    assert result["debug_logs"][0]["message"] == "test log"
+
+
+def test_flaky_detector_from_context() -> None:
+    context_dict = {
+        "budget_ratio_for_new_tests": 0.1,
+        "budget_ratio_for_unhealthy_tests": 0.05,
+        "existing_test_names": ["test_foo", "test_bar"],
+        "existing_tests_mean_duration_ms": 5000,
+        "unhealthy_test_names": ["test_foo"],
+        "max_test_execution_count": 100,
+        "max_test_name_length": 65536,
+        "min_budget_duration_ms": 4000,
+        "min_test_execution_count": 5,
+    }
+
+    detector = flaky_detection.FlakyDetector.from_context(
+        context_dict=context_dict,
+        mode="new",
+    )
+
+    assert detector.mode == "new"
+    assert detector._context.existing_test_names == ["test_foo", "test_bar"]
+    assert detector._context.existing_tests_mean_duration_ms == 5000
+    assert detector._context.max_test_execution_count == 100
+    assert detector._test_metrics == {}
+    assert detector._tests_to_process == []
+
+
+def test_make_report_from_aggregated() -> None:
+    context_dict = {
+        "budget_ratio_for_new_tests": 0.1,
+        "budget_ratio_for_unhealthy_tests": 0.05,
+        "existing_test_names": ["test_existing"],
+        "existing_tests_mean_duration_ms": 10000,
+        "unhealthy_test_names": [],
+        "max_test_execution_count": 1000,
+        "max_test_name_length": 65536,
+        "min_budget_duration_ms": 4000,
+        "min_test_execution_count": 5,
+    }
+    metrics = {
+        "test_metrics": {
+            "test_bar": {
+                "rerun_count": 10,
+                "total_duration_ms": 1000.0,
+                "initial_setup_duration_ms": 10.0,
+                "initial_call_duration_ms": 80.0,
+                "initial_teardown_duration_ms": 10.0,
+                "prevented_timeout": False,
+            },
+        },
+        "over_length_tests": [],
+        "debug_logs": [],
+    }
+
+    report = flaky_detection.make_report_from_aggregated(
+        context_dict=context_dict,
+        mode="new",
+        available_budget_duration_ms=4000.0,
+        aggregated_metrics=metrics,
+    )
+
+    assert "Flaky detection" in report
+    assert "test_bar" in report
+    assert "has been tested 10 time" in report
+    assert "Active for 1 new test" in report
+
+
+@freezegun.freeze_time(time_to_freeze=_NOW)
+def test_flaky_detector_set_test_deadline_static() -> None:
+    """Under xdist, deadlines use static per-test budget allocation."""
+    detector = InitializedFlakyDetector()
+    detector.mode = "new"
+    detector._is_xdist = True
+    detector._context = _make_flaky_detection_context()
+    detector._available_budget_duration = datetime.timedelta(seconds=10)
+    detector._tests_to_process = ["foo", "bar"]
+    detector._test_metrics = {
+        "foo": flaky_detection._TestMetrics(),
+    }
+
+    detector.set_test_deadline(test="foo")
+
+    metrics = detector._test_metrics["foo"]
+    assert metrics.deadline is not None
+    # Static: 10s / 2 tests = 5s per test.
+    expected_deadline = _NOW + datetime.timedelta(seconds=5)
+    assert metrics.deadline == expected_deadline
+
+
+def test_make_report_from_aggregated_no_tests() -> None:
+    context_dict = {
+        "budget_ratio_for_new_tests": 0.1,
+        "budget_ratio_for_unhealthy_tests": 0.05,
+        "existing_test_names": ["test_existing"],
+        "existing_tests_mean_duration_ms": 10000,
+        "unhealthy_test_names": [],
+        "max_test_execution_count": 1000,
+        "max_test_name_length": 65536,
+        "min_budget_duration_ms": 4000,
+        "min_test_execution_count": 5,
+    }
+
+    report = flaky_detection.make_report_from_aggregated(
+        context_dict=context_dict,
+        mode="new",
+        available_budget_duration_ms=4000.0,
+        aggregated_metrics={
+            "test_metrics": {},
+            "over_length_tests": [],
+            "debug_logs": [],
+        },
+    )
+
+    assert "No new tests detected" in report
