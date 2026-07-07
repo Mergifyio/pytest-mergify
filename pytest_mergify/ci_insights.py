@@ -187,8 +187,6 @@ class MergifyCIInsights:
         if (
             self.token is None
             or self.repo_name is None
-            # NOTE(remyduthu): Hide behind a feature flag for now.
-            or not utils.is_env_truthy("_MERGIFY_TEST_NEW_FLAKY_DETECTION")
             # On xdist workers the detector is loaded from the controller-
             # provided context, so skip the redundant per-worker API call.
             or os.environ.get("PYTEST_XDIST_WORKER") is not None
@@ -202,6 +200,10 @@ class MergifyCIInsights:
                 full_repository_name=self.repo_name,
                 mode=mode,
             )
+        except flaky_detection.FlakyDetectionDisabledError:
+            # The repository has not opted into flaky detection, or has no
+            # baseline yet. Both are expected; skip without an error.
+            return
         except Exception as exception:
             self.flaky_detector_error_message = (
                 f"Could not load flaky detector: {str(exception)}"

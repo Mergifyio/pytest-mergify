@@ -3,8 +3,6 @@ type = "uv"
 
 [tool.poe.tasks.test]
 cmd = "pytest -v --pyargs tests"
-[tool.poe.tasks.test.env]
-_MERGIFY_TEST_NEW_FLAKY_DETECTION = "true"
 
 [tool.poe.tasks.linters]
 help = "Run linters"
