@@ -28,6 +28,11 @@ class PytestMergify:
     mergify_ci: MergifyCIInsights
 
     def pytest_configure(self, config: _pytest.config.Config) -> None:
+        config.addinivalue_line(
+            "markers",
+            "mergify(reruns=bool): Mergify per-test options. "
+            "Set reruns=False to disable reruns for the test.",
+        )
         kwargs = {}
         api_url = config.getoption("--mergify-api-url")
         if api_url is not None:
