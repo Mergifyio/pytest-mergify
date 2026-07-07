@@ -258,7 +258,7 @@ class FlakyDetector:
         ]
 
         excluded_tests = {
-            item.nodeid for item in session.items if not _should_rerun_item(item)
+            item.nodeid for item in session.items if _flaky_detection_disabled(item)
         }
 
         if self.mode == "new":
@@ -641,8 +641,8 @@ def make_report_from_aggregated(
     return result
 
 
-def _should_rerun_item(item: _pytest.nodes.Item) -> bool:
-    """Whether a test may be rerun. Opt out via
-    `@pytest.mark.mergify(reruns=False)`."""
+def _flaky_detection_disabled(item: _pytest.nodes.Item) -> bool:
+    """Whether a test disabled flaky detection via
+    `@pytest.mark.mergify(flaky_detection=False)`."""
     marker = item.get_closest_marker("mergify")
-    return marker is None or marker.kwargs.get("reruns", True) is not False
+    return marker is not None and marker.kwargs.get("flaky_detection", True) is False
