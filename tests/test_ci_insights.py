@@ -751,7 +751,7 @@ def test_flaky_detection_excludes_opted_out_tests(
         def test_watched():
             assert True
 
-        @pytest.mark.mergify(reruns=False)
+        @pytest.mark.mergify(flaky_detection=False)
         def test_excluded():
             assert True
         """
