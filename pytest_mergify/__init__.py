@@ -30,8 +30,8 @@ class PytestMergify:
     def pytest_configure(self, config: _pytest.config.Config) -> None:
         config.addinivalue_line(
             "markers",
-            "mergify(reruns=bool): Mergify per-test options. "
-            "Set reruns=False to disable reruns for the test.",
+            "mergify(flaky_detection=bool): Mergify per-test options. "
+            "Set flaky_detection=False to disable flaky detection for the test.",
         )
         kwargs = {}
         api_url = config.getoption("--mergify-api-url")
