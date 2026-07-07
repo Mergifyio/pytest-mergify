@@ -242,17 +242,22 @@ class FlakyDetector:
             if test in tests_in_session
         ]
 
+        excluded_tests = {
+            item.nodeid for item in session.items if not _should_rerun_item(item)
+        }
+
         if self.mode == "new":
             self._tests_to_process = [
                 test
                 for test in tests_in_session
-                if test not in existing_tests_in_session
+                if test not in existing_tests_in_session and test not in excluded_tests
             ]
         elif self.mode == "unhealthy":
             self._tests_to_process = [
                 test
                 for test in tests_in_session
                 if test in self._context.unhealthy_test_names
+                and test not in excluded_tests
             ]
 
         if self.mode == "new":
@@ -619,3 +624,10 @@ def make_report_from_aggregated(
             result += f"{os.linesep}{json.dumps(log)}"
 
     return result
+
+
+def _should_rerun_item(item: _pytest.nodes.Item) -> bool:
+    """Whether a test may be rerun. Opt out via
+    `@pytest.mark.mergify(reruns=False)`."""
+    marker = item.get_closest_marker("mergify")
+    return marker is None or marker.kwargs.get("reruns", True) is not False

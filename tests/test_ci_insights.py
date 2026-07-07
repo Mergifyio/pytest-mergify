@@ -717,3 +717,59 @@ def test_empty_base_ref_falls_through_to_head_ref(
     assert plugin.mergify_ci.branch_name == "main"
     assert plugin.mergify_ci.flaky_detector is not None
     assert plugin.mergify_ci.flaky_detector.mode == "unhealthy"
+
+
+@responses.activate
+def test_flaky_detection_excludes_opted_out_tests(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    # A non-empty baseline so `new` mode loads; it is absent from the session.
+    _make_flaky_detection_context_mock(
+        existing_test_names=["baseline.py::test_baseline"],
+    )
+
+    result, spans = pytester_with_spans(
+        code="""
+        import pytest
+
+        def test_watched():
+            assert True
+
+        @pytest.mark.mergify(reruns=False)
+        def test_excluded():
+            assert True
+        """
+    )
+
+    result.assert_outcomes(
+        # test_watched: 1 initial + 1000 reruns; test_excluded: 1 (not rerun).
+        passed=1002,
+    )
+
+    # Only test_watched is rerun; test_excluded is absent from the report.
+    assert re.search(
+        r"""🐛 Flaky detection
+- Used [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)
+- Active for 1 new test:
+    • 'test_flaky_detection_excludes_opted_out_tests\.py::test_watched' has been tested \d+ times using approx\. [0-9.]+ % of the budget \([0-9.]+ s/[0-9.]+ s\)""",
+        result.stdout.str(),
+        re.MULTILINE,
+    )
+
+    assert spans is not None
+    assert len(spans) == 1 + 2  # 1 for the session and one per test.
+
+    watched = spans["test_flaky_detection_excludes_opted_out_tests.py::test_watched"]
+    assert watched.attributes is not None
+    assert watched.attributes.get("cicd.test.new") is True
+    assert watched.attributes.get("cicd.test.flaky_detection") is True
+    assert watched.attributes.get("cicd.test.rerun_count") == 1000
+
+    excluded = spans["test_flaky_detection_excludes_opted_out_tests.py::test_excluded"]
+    assert excluded.attributes is not None
+    assert excluded.attributes.get("cicd.test.new") is None
+    assert excluded.attributes.get("cicd.test.flaky_detection") is None
+    assert excluded.attributes.get("cicd.test.rerun_count") is None
