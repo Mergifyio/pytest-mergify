@@ -13,6 +13,15 @@ import requests
 from pytest_mergify import utils
 
 
+class FlakyDetectionDisabledError(Exception):
+    """Flaky detection must not run for this session, and that is expected.
+
+    Raised when the repository has not opted into flaky detection (the server
+    responds with 404) or when there is no baseline of existing tests to
+    compare against yet. Callers skip silently instead of surfacing an error.
+    """
+
+
 @dataclasses.dataclass
 class _FlakyDetectionContext:
     budget_ratio_for_new_tests: float
@@ -198,13 +207,19 @@ class FlakyDetector:
             timeout=10,
         )
 
+        # A 404 means the repository has not opted into flaky detection. This
+        # is the expected default, not an error.
+        if response.status_code == 404:
+            raise FlakyDetectionDisabledError
+
         response.raise_for_status()
 
         result = _FlakyDetectionContext(**response.json())
+
+        # Without a baseline, `new` mode would treat every test as new and
+        # rerun the whole suite. Skip instead of surfacing an error.
         if self.mode == "new" and len(result.existing_test_names) == 0:
-            raise RuntimeError(
-                f"No existing tests found for '{self.full_repository_name}' repository",
-            )
+            raise FlakyDetectionDisabledError
 
         return result
 

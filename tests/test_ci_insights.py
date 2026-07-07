@@ -17,7 +17,6 @@ def _set_test_environment(
     monkeypatch: pytest.MonkeyPatch,
     mode: typing.Literal["new", "unhealthy"] = "new",
 ) -> None:
-    monkeypatch.setenv("_MERGIFY_TEST_NEW_FLAKY_DETECTION", "true")
     monkeypatch.setenv("_PYTEST_MERGIFY_TEST", "true")
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -114,9 +113,27 @@ def test_load_flaky_detection_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @responses.activate
-def test_load_flaky_detection_error_without_existing_tests(
+def test_load_flaky_detection_disabled_when_not_opted_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A 404 means the repository has not opted into flaky detection; the
+    client skips silently rather than surfacing an error."""
+    _set_test_environment(monkeypatch)
+
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(status=404)
+
+    client = _make_test_client()
+    assert client.flaky_detector is None
+    assert client.flaky_detector_error_message is None
+
+
+@responses.activate
+def test_load_flaky_detection_skipped_without_existing_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no baseline in `new` mode, every test would look new and the whole
+    suite would be rerun; the client skips silently rather than erroring."""
     _set_test_environment(monkeypatch)
 
     _make_quarantine_mock()
@@ -124,11 +141,7 @@ def test_load_flaky_detection_error_without_existing_tests(
 
     client = _make_test_client()
     assert client.flaky_detector is None
-    assert client.flaky_detector_error_message is not None
-    assert (
-        "No existing tests found for 'Mergifyio/pytest-mergify' repository"
-        in client.flaky_detector_error_message
-    )
+    assert client.flaky_detector_error_message is None
 
 
 @responses.activate
