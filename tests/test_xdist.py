@@ -283,7 +283,6 @@ def test_worker_does_not_fetch_flaky_context(
     count, so the fetch must be skipped when running as a worker.
     """
     monkeypatch.setattr(utils, "is_in_ci", lambda: False)
-    monkeypatch.setenv("_MERGIFY_TEST_NEW_FLAKY_DETECTION", "true")
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
 
     insights = ci_insights.MergifyCIInsights(

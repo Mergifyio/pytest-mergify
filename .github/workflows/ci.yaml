@@ -25,9 +25,7 @@ jobs:
           enable-cache: true
           version-file: requirements-uv.txt
 
-      - env:
-          _MERGIFY_TEST_NEW_FLAKY_DETECTION: "true"
-        run: |
+      - run: |
           export UV_PYTHON=${{ matrix.python-version }}
           export UV_LOCKED=1
           uv run poe linters
