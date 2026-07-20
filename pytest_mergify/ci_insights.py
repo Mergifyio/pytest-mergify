@@ -11,9 +11,10 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
     OTLPSpanExporter,
 )
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor, TracerProvider, export
-from opentelemetry.semconv._incubating.attributes import vcs_attributes
+from opentelemetry.semconv._incubating.attributes import cicd_attributes, vcs_attributes
 
 import pytest_mergify.quarantine
+import pytest_mergify.test_selection
 import pytest_mergify.resources.ci as resources_ci
 import pytest_mergify.resources.git as resources_git
 import pytest_mergify.resources.github_actions as resources_gha
@@ -91,6 +92,13 @@ class MergifyCIInsights:
     )
 
     quarantined_tests: typing.Optional[pytest_mergify.quarantine.Quarantine] = (
+        dataclasses.field(
+            init=False,
+            default=None,
+        )
+    )
+
+    test_selection: typing.Optional[pytest_mergify.test_selection.TestSelection] = (
         dataclasses.field(
             init=False,
             default=None,
@@ -179,6 +187,52 @@ class MergifyCIInsights:
                 self.repo_name,
                 self.branch_name,
             )
+
+        self._load_test_selection(resource)
+
+    def _load_test_selection(
+        self, resource: opentelemetry.sdk.resources.Resource
+    ) -> None:
+        try:
+            disabled = utils.strtobool(
+                os.environ.get("MERGIFY_TEST_SELECTION_DISABLE", "false")
+            )
+        except ValueError:
+            # A kill switch must never crash pytest startup: any value we
+            # cannot parse reads as an attempt to disable.
+            disabled = True
+
+        if (
+            self.token is None
+            or self.repo_name is None
+            or disabled
+            # On xdist workers the controller already filtered the collection.
+            or os.environ.get("PYTEST_XDIST_WORKER") is not None
+        ):
+            return
+
+        # The selection is keyed on the run's OWN identity: the head branch
+        # and head revision (a merge-queue draft branch on reruns) plus the
+        # job coordinates — the exact values this plugin reports with each
+        # uploaded test, so the server can match its records.
+        head_branch = resource.attributes.get(vcs_attributes.VCS_REF_HEAD_NAME)
+        head_sha = resource.attributes.get(vcs_attributes.VCS_REF_HEAD_REVISION)
+        pipeline_name = resource.attributes.get(cicd_attributes.CICD_PIPELINE_NAME)
+        job_name = resource.attributes.get(
+            "mergify.test.job.name"
+        ) or resource.attributes.get(cicd_attributes.CICD_PIPELINE_TASK_NAME)
+        if not (head_branch and head_sha and pipeline_name and job_name):
+            return
+
+        self.test_selection = pytest_mergify.test_selection.TestSelection(
+            api_url=self.api_url,
+            token=self.token,
+            repo_name=self.repo_name,
+            branch_name=str(head_branch),
+            head_sha=str(head_sha),
+            pipeline_name=str(pipeline_name),
+            job_name=str(job_name),
+        )
 
     def _load_flaky_detector(
         self,

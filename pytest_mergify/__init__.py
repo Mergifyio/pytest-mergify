@@ -141,6 +141,15 @@ class PytestMergify:
                     self.mergify_ci.quarantined_tests.quarantined_tests_report()
                 )
 
+        # Mergify test selection (reduced merge-queue reruns) logs
+        if self.mergify_ci.test_selection is not None:
+            if self.mergify_ci.test_selection.init_error_msg:
+                terminalreporter.write_line(
+                    self.mergify_ci.test_selection.init_error_msg, yellow=True
+                )
+            else:
+                terminalreporter.write_line(self.mergify_ci.test_selection.report())
+
         # Mergify Test Insights Traces upload logs
         if self.mergify_ci.tracer_provider is None:
             terminalreporter.write_line(
@@ -188,6 +197,17 @@ class PytestMergify:
                 context=ctx if traceparent else None,
             )
         self.has_error = False
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_modifyitems(
+        self,
+        config: _pytest.config.Config,
+        items: typing.List[_pytest.nodes.Item],
+    ) -> None:
+        # trylast so user filters (-k, -m, --deselect) apply first; the
+        # reduced-rerun subset then only ever narrows what remains.
+        if self.mergify_ci.test_selection:
+            self.mergify_ci.test_selection.filter_items(config, items)
 
     def pytest_collection_finish(self, session: _pytest.main.Session) -> None:
         if self.mergify_ci.flaky_detector:
