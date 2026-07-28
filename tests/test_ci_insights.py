@@ -194,7 +194,7 @@ def test_flaky_detection_for_new_tests(
 
     result.assert_outcomes(
         failed=1,  # Only the first execution of the flaky test.
-        passed=3001,  # 1000 executions for each of the 3 new tests, plus 2 tests run once.
+        passed=3001,  # 2 tests run once + 2 new tests pass 1000x + flaky test passes 999x (first execution fails).
         skipped=1,  # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
     )
 
