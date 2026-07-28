@@ -341,10 +341,8 @@ class PytestMergify:
             return distinct_outcomes, 0
 
         rerun_count = 0
-        while not item.keywords.get("is_last_rerun"):
-            item.keywords["is_last_rerun"] = (
-                self.mergify_ci.flaky_detector.is_last_rerun_for_test(item.nodeid)
-            )
+        while not self.mergify_ci.flaky_detector.is_on_last_rerun(item.nodeid):
+            self.mergify_ci.flaky_detector.flag_last_rerun(item.nodeid)
 
             # Always execute a last rerun before stopping to properly
             # restore finalizers. Otherwise, it can lead to resource leaks.
@@ -432,7 +430,7 @@ class PytestMergify:
 
         # The goal here is to keep only function-scoped finalizers during
         # reruns and restore higher-scoped finalizers only on the last one.
-        if item.keywords.get("is_last_rerun"):
+        if detector.is_on_last_rerun(item.nodeid):
             detector.restore_item_finalizers(item)
         else:
             detector.suspend_item_finalizers(item)

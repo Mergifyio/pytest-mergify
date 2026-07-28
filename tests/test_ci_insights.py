@@ -481,6 +481,48 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
 
 
 @responses.activate
+def test_flaky_detection_keeps_its_state_out_of_report_keywords(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    "Test that rerun bookkeeping stays out of pytest's keyword namespace."
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_keeps_its_state_out_of_report_keywords.py::test_existing",
+        ],
+        max_test_execution_count=3,
+        min_test_execution_count=1,
+    )
+
+    reported_keywords: typing.Set[str] = set()
+
+    class CustomPlugin:
+        def pytest_runtest_logreport(self, report: _pytest.reports.TestReport) -> None:
+            reported_keywords.update(report.keywords)
+
+    pytester.makepyfile(
+        """
+        def test_existing():
+            assert True
+
+        def test_new():
+            assert True
+        """
+    )
+
+    result = pytester.runpytest_inprocess(
+        plugins=[CustomPlugin(), pytest_mergify.PytestMergify()]
+    )
+    assert result.ret == 0
+
+    # `report.keywords` reaches `-k` matching, the xdist worker/controller
+    # payload and JUnit XML, so nothing internal belongs in it.
+    assert "is_last_rerun" not in reported_keywords
+
+
+@responses.activate
 def test_flaky_detection_test_skipping_only_on_a_rerun(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
