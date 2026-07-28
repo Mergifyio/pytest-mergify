@@ -481,6 +481,61 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
 
 
 @responses.activate
+def test_flaky_detection_test_skipping_only_on_a_rerun(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    "Test that a test skipping part-way through its reruns stays recoverable."
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_test_skipping_only_on_a_rerun.py::test_existing",
+        ],
+        max_test_execution_count=5,
+        min_test_execution_count=1,
+    )
+
+    pytester.makepyfile(
+        """
+        import pathlib
+
+        import pytest
+
+        EXECUTIONS = 0
+
+        @pytest.fixture(scope="module", autouse=True)
+        def _module_resource():
+            yield
+            pathlib.Path("module_teardown_ran").touch()
+
+        def test_existing():
+            assert True
+
+        def test_new():
+            global EXECUTIONS
+            EXECUTIONS += 1
+
+            # Passes once, then becomes unavailable — a service that went away,
+            # a container that stopped being ready.
+            if EXECUTIONS > 1:
+                pytest.skip("no longer available")
+        """
+    )
+
+    result = pytester.runpytest_inprocess(plugins=[pytest_mergify.PytestMergify()])
+
+    # The session completes rather than dying on a `KeyError`...
+    assert result.ret != pytest.ExitCode.INTERNAL_ERROR
+    assert "INTERNALERROR" not in result.stdout.str()
+    # ...and the finalizers suspended for the reruns are handed back.
+    assert (pytester.path / "module_teardown_ran").exists()
+    # ...and a skip still counts as an execution, so the test stops at the limit
+    # instead of rerunning a no-op until the budget runs out.
+    assert 0 < result.parseoutcomes()["skipped"] <= 5
+
+
+@responses.activate
 def test_flaky_detection_slow_test_not_reran(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,
