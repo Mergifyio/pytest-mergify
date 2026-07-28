@@ -314,8 +314,11 @@ class FlakyDetector:
         metrics = self._test_metrics[test]
 
         will_exceed_deadline = metrics.will_exceed_deadline()
+        # `rerun_count` counts executions, initial run included, and this is
+        # checked before the rerun it guards. The rerun about to happen is
+        # therefore the last permitted one when it is the one reaching the cap.
         will_exceed_rerun_count = (
-            metrics.rerun_count >= self._context.max_test_execution_count
+            metrics.rerun_count + 1 >= self._context.max_test_execution_count
         )
 
         self._debug_logs.append(
