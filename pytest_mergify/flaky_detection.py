@@ -229,9 +229,15 @@ class FlakyDetector:
     def try_fill_metrics_from_report(self, report: _pytest.reports.TestReport) -> None:
         test = report.nodeid
 
-        if report.outcome == "skipped":
+        if report.outcome == "skipped" and not self.is_rerunning_test(test):
             # Remove metrics for skipped tests. Setup phase may have passed and
             # initialized metrics before call phase was skipped.
+            #
+            # Only before the test starts being rerun: from then on the metrics
+            # drive the rerun loop and the finalizer bookkeeping, so dropping
+            # them mid-loop crashes the session and strands the finalizers
+            # suspended for this test. A skip during a rerun is instead recorded
+            # like any other outcome, so it counts towards the execution limit.
             self._test_metrics.pop(test, None)
             return
 
