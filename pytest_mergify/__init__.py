@@ -336,13 +336,7 @@ class PytestMergify:
         ):
             return distinct_outcomes, 0
 
-        self.mergify_ci.flaky_detector.set_test_deadline(
-            test=item.nodeid,
-            timeout=datetime.timedelta(seconds=timeout_seconds)
-            if (timeout_seconds := pytest_timeout._get_item_settings(item).timeout)
-            else None,
-        )
-
+        # Decided at the first teardown, before any finalizer was suspended.
         if self.mergify_ci.flaky_detector.is_test_too_slow(item.nodeid):
             return distinct_outcomes, 0
 
@@ -417,18 +411,31 @@ class PytestMergify:
         self,
         item: _pytest.nodes.Item,
     ) -> None:
-        if (
-            not self.mergify_ci.flaky_detector
-            or not self.mergify_ci.flaky_detector.is_rerunning_test(item.nodeid)
-        ):
+        detector = self.mergify_ci.flaky_detector
+        if detector is None or not detector.is_rerunning_test(item.nodeid):
             return
+
+        if not detector.has_test_deadline(item.nodeid):
+            # First teardown for this test. Whether it gets rerun is decided
+            # here, before any finalizer moves: suspending for a test that is
+            # then skipped leaves higher-scoped finalizers outside pytest's
+            # stack with nothing left to restore them.
+            detector.set_test_deadline(
+                test=item.nodeid,
+                timeout=datetime.timedelta(seconds=timeout_seconds)
+                if (timeout_seconds := pytest_timeout._get_item_settings(item).timeout)
+                else None,
+            )
+
+            if detector.decide_test_is_too_slow(item.nodeid):
+                return
 
         # The goal here is to keep only function-scoped finalizers during
         # reruns and restore higher-scoped finalizers only on the last one.
         if item.keywords.get("is_last_rerun"):
-            self.mergify_ci.flaky_detector.restore_item_finalizers(item)
+            detector.restore_item_finalizers(item)
         else:
-            self.mergify_ci.flaky_detector.suspend_item_finalizers(item)
+            detector.suspend_item_finalizers(item)
 
     def pytest_exception_interact(
         self,
