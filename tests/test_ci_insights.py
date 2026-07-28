@@ -540,6 +540,45 @@ def test_flaky_detection_slow_test_not_reran(
 
 
 @responses.activate
+def test_flaky_detection_consistent_failure_is_not_flaky(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    "Test that a test failing every single time is reported as broken, not flaky."
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_consistent_failure_is_not_flaky.py::test_existing",
+        ],
+        max_test_execution_count=3,
+        min_test_execution_count=1,
+    )
+
+    _, spans = pytester_with_spans(
+        code="""
+        def test_existing():
+            assert True
+
+        def test_always_fails():
+            assert False
+        """
+    )
+
+    assert spans is not None
+    span = spans[
+        "test_flaky_detection_consistent_failure_is_not_flaky.py::test_always_fails"
+    ]
+    assert span.attributes is not None
+
+    # The test was reran, so flaky detection did consider it...
+    assert span.attributes.get("cicd.test.flaky_detection") is True
+    assert span.attributes.get("test.case.result.status") == "failed"
+    # ...but it never passed once, so it is broken rather than flaky.
+    assert span.attributes.get("cicd.test.flaky") is None
+
+
+@responses.activate
 def test_flaky_detection_budget_deadline_stops_reruns(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,

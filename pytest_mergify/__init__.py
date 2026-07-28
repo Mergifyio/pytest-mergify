@@ -326,10 +326,9 @@ class PytestMergify:
         """Run initial test and flaky detection reruns. Returns (outcomes, rerun_count)."""
         distinct_outcomes: typing.Set[str] = set()
 
-        for report in _pytest.runner.runtestprotocol(
-            item=item, nextitem=nextitem, log=True
-        ):
-            distinct_outcomes.add(report.outcome)
+        distinct_outcomes |= _call_outcomes(
+            _pytest.runner.runtestprotocol(item=item, nextitem=nextitem, log=True)
+        )
 
         if (
             not self.mergify_ci.flaky_detector
@@ -355,8 +354,7 @@ class PytestMergify:
 
             # Always execute a last rerun before stopping to properly
             # restore finalizers. Otherwise, it can lead to resource leaks.
-            for report in self._reruntestprotocol(item, nextitem):
-                distinct_outcomes.add(report.outcome)
+            distinct_outcomes |= _call_outcomes(self._reruntestprotocol(item, nextitem))
 
             rerun_count += 1
 
@@ -529,6 +527,19 @@ def pytest_configure(config: _pytest.config.Config) -> None:
             return
 
     config.pluginmanager.register(PytestMergify(), name="PytestMergify")
+
+
+def _call_outcomes(
+    reports: typing.List[_pytest.reports.TestReport],
+) -> typing.Set[str]:
+    """
+    Outcomes of the call phase only.
+
+    Setup and teardown report "passed" for every test that runs, so counting
+    them would make a test that never once passed look like it both passed and
+    failed.
+    """
+    return {report.outcome for report in reports if report.when == "call"}
 
 
 def _should_skip_item(item: _pytest.nodes.Item) -> bool:
