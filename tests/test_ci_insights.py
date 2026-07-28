@@ -579,6 +579,126 @@ def test_flaky_detection_consistent_failure_is_not_flaky(
 
 
 @responses.activate
+def test_flaky_detection_slow_test_keeps_higher_scoped_finalizers(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    "Test that a test skipped for being too slow still tears down its module."
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_slow_test_keeps_higher_scoped_finalizers.py::test_existing",
+        ],
+        min_test_execution_count=5,
+    )
+
+    class CustomPlugin:
+        def pytest_runtest_makereport(
+            self,
+            item: _pytest.nodes.Item,
+            call: _pytest.reports.TestReport,
+        ) -> None:
+            if call.when != "call":
+                return
+
+            if "test_slow" in item.nodeid:
+                call.duration = 10.0  # Simulate a slow test.
+            else:
+                call.duration = 0.001
+
+    # `test_slow` is last, so its teardown is the only chance the module-scoped
+    # finalizer gets to run.
+    pytester.makepyfile(
+        """
+        import pathlib
+
+        import pytest
+
+        @pytest.fixture(scope="module", autouse=True)
+        def _module_resource():
+            yield
+            pathlib.Path("module_teardown_ran").touch()
+
+        def test_existing():
+            assert True
+
+        def test_slow():
+            assert True
+        """
+    )
+
+    result = pytester.runpytest_inprocess(
+        plugins=[CustomPlugin(), pytest_mergify.PytestMergify()]
+    )
+    result.assert_outcomes(passed=2)
+
+    assert (
+        "'test_flaky_detection_slow_test_keeps_higher_scoped_finalizers.py::test_slow' is too slow"
+        in result.stdout.str()
+    )
+    assert (pytester.path / "module_teardown_ran").exists()
+
+
+@responses.activate
+def test_flaky_detection_slow_teardown_keeps_higher_scoped_finalizers(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester: _pytest.pytester.Pytester,
+) -> None:
+    "Test that the too-slow verdict cannot flip after finalizers were suspended."
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_slow_teardown_keeps_higher_scoped_finalizers.py::test_existing",
+        ],
+        min_test_execution_count=5,
+    )
+
+    # A cheap call with an expensive teardown: cheap enough to be reran when the
+    # verdict is taken, expensive enough to look too slow once the teardown is
+    # measured.
+    class CustomPlugin:
+        def pytest_runtest_makereport(
+            self,
+            item: _pytest.nodes.Item,
+            call: _pytest.reports.TestReport,
+        ) -> None:
+            if "test_slow" not in item.nodeid:
+                call.duration = 0.001
+            elif call.when == "teardown":
+                call.duration = 10.0
+            elif call.when == "call":
+                call.duration = 0.001
+
+    pytester.makepyfile(
+        """
+        import pathlib
+
+        import pytest
+
+        @pytest.fixture(scope="module", autouse=True)
+        def _module_resource():
+            yield
+            pathlib.Path("module_teardown_ran").touch()
+
+        def test_existing():
+            assert True
+
+        def test_slow():
+            assert True
+        """
+    )
+
+    result = pytester.runpytest_inprocess(
+        plugins=[CustomPlugin(), pytest_mergify.PytestMergify()]
+    )
+
+    assert (pytester.path / "module_teardown_ran").exists()
+    assert result.ret == 0
+
+
+@responses.activate
 def test_flaky_detection_budget_deadline_stops_reruns(
     monkeypatch: pytest.MonkeyPatch,
     pytester: _pytest.pytester.Pytester,

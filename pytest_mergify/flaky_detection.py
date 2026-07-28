@@ -76,6 +76,9 @@ class _TestMetrics:
 
     prevented_timeout: bool = dataclasses.field(default=False)
 
+    too_slow: bool = dataclasses.field(default=False)
+    "Whether the test is too slow to be rerun, as decided at its first teardown."
+
     total_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
     )
@@ -290,13 +293,33 @@ class FlakyDetector:
             self._context.min_budget_duration,
         )
 
-    def is_test_too_slow(self, test: str) -> bool:
-        metrics = self._test_metrics[test]
+    def has_test_deadline(self, test: str) -> bool:
+        """Whether a deadline was already computed for this test."""
+        metrics = self._test_metrics.get(test)
 
-        return (
+        return metrics is not None and metrics.deadline is not None
+
+    def decide_test_is_too_slow(self, test: str) -> bool:
+        """
+        Decide whether the test can still be rerun enough times before its
+        deadline, and remember the answer.
+
+        The answer is only ever taken once. The estimate grows as the test runs
+        while the time left shrinks, so deciding again later can flip to `True`
+        after finalizers were already suspended for a rerun that then never
+        happens, leaving them stranded.
+        """
+        metrics = self._test_metrics[test]
+        metrics.too_slow = (
             metrics.initial_duration * self._context.min_test_execution_count
             > metrics.remaining_time()
         )
+
+        return metrics.too_slow
+
+    def is_test_too_slow(self, test: str) -> bool:
+        """The decision taken at the test's first teardown."""
+        return self._test_metrics[test].too_slow
 
     def is_test_rerun(self, test: str) -> bool:
         """Returns `True` if the test has already completed its initial run and is
