@@ -229,7 +229,7 @@ class FlakyDetector:
     def try_fill_metrics_from_report(self, report: _pytest.reports.TestReport) -> None:
         test = report.nodeid
 
-        if report.outcome == "skipped" and not self.is_rerunning_test(test):
+        if report.outcome == "skipped" and not self.has_test_executed(test):
             # Remove metrics for skipped tests. Setup phase may have passed and
             # initialized metrics before call phase was skipped.
             #
@@ -327,14 +327,16 @@ class FlakyDetector:
         """The decision taken at the test's first teardown."""
         return self._test_metrics[test].too_slow
 
-    def is_test_rerun(self, test: str) -> bool:
-        """Returns `True` if the test has already completed its initial run and is
-        now in a rerun, `False` otherwise."""
+    def has_test_been_rerun(self, test: str) -> bool:
+        """Whether the test is past its initial execution, so the report or span
+        at hand belongs to a rerun rather than to the first run."""
         return (
             metrics := self._test_metrics.get(test)
         ) is not None and metrics.rerun_count > 1
 
-    def is_rerunning_test(self, test: str) -> bool:
+    def has_test_executed(self, test: str) -> bool:
+        """Whether flaky detection tracks this test and it has completed at
+        least one execution — the point from which it may be rerun."""
         return (
             metrics := self._test_metrics.get(test)
         ) is not None and metrics.rerun_count >= 1

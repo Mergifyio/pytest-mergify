@@ -332,7 +332,7 @@ class PytestMergify:
 
         if (
             not self.mergify_ci.flaky_detector
-            or not self.mergify_ci.flaky_detector.is_rerunning_test(item.nodeid)
+            or not self.mergify_ci.flaky_detector.has_test_executed(item.nodeid)
         ):
             return distinct_outcomes, 0
 
@@ -412,7 +412,7 @@ class PytestMergify:
         item: _pytest.nodes.Item,
     ) -> None:
         detector = self.mergify_ci.flaky_detector
-        if detector is None or not detector.is_rerunning_test(item.nodeid):
+        if detector is None or not detector.has_test_executed(item.nodeid):
             return
 
         if not detector.has_test_deadline(item.nodeid):
@@ -480,7 +480,7 @@ class PytestMergify:
 
         if (
             self.mergify_ci.flaky_detector
-            and self.mergify_ci.flaky_detector.is_test_rerun(report.nodeid)
+            and self.mergify_ci.flaky_detector.has_test_been_rerun(report.nodeid)
         ):
             return
 
@@ -507,7 +507,7 @@ class PytestMergify:
 
         if (
             self.mergify_ci.flaky_detector
-            and self.mergify_ci.flaky_detector.is_rerunning_test(report.nodeid)
+            and self.mergify_ci.flaky_detector.has_test_executed(report.nodeid)
         ):
             test_span.set_attributes({"cicd.test.flaky_detection": True})
             if self.mergify_ci.flaky_detector.mode == "new":
