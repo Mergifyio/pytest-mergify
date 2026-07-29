@@ -87,6 +87,16 @@ class _TestMetrics:
     )
     "Represents the total duration spent executing this test, including reruns."
 
+    @property
+    def rerun_duration(self) -> datetime.timedelta:
+        """
+        Represents the duration of the reruns alone.
+
+        The initial execution runs whether or not flaky detection is enabled, so
+        it is not work this feature added and is not charged to its budget.
+        """
+        return self.total_duration - self.initial_duration
+
     def fill_from_report(self, report: _pytest.reports.TestReport) -> None:
         duration = datetime.timedelta(seconds=report.duration)
 
@@ -489,6 +499,7 @@ class FlakyDetector:
                 test: {
                     "rerun_count": metrics.rerun_count,
                     "total_duration_ms": metrics.total_duration.total_seconds() * 1000,
+                    "rerun_duration_ms": metrics.rerun_duration.total_seconds() * 1000,
                     "initial_setup_duration_ms": metrics.initial_setup_duration.total_seconds()
                     * 1000,
                     "initial_call_duration_ms": metrics.initial_call_duration.total_seconds()
@@ -519,7 +530,7 @@ class FlakyDetector:
 
     def _get_used_budget_duration(self) -> datetime.timedelta:
         return sum(
-            (metrics.total_duration for metrics in self._test_metrics.values()),
+            (metrics.rerun_duration for metrics in self._test_metrics.values()),
             datetime.timedelta(),
         )
 
@@ -627,7 +638,7 @@ def make_report_from_aggregated(
         return result
 
     available_budget_seconds = available_budget_duration_ms / 1000
-    used_budget_ms = sum(m["total_duration_ms"] for m in test_metrics.values())
+    used_budget_ms = sum(m["rerun_duration_ms"] for m in test_metrics.values())
     used_budget_seconds = used_budget_ms / 1000
     if available_budget_seconds > 0:
         result += (
@@ -649,7 +660,7 @@ def make_report_from_aggregated(
             )
             continue
 
-        rerun_duration_seconds = m["total_duration_ms"] / 1000
+        rerun_duration_seconds = m["rerun_duration_ms"] / 1000
         if available_budget_seconds > 0:
             result += (
                 f"{os.linesep}    • '{test}' has been tested {m['rerun_count']} "
