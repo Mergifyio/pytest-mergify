@@ -84,25 +84,29 @@ def get_ci_provider() -> typing.Optional[CIProviderT]:
 
 
 def get_repository_name_from_url(repository_url: str) -> typing.Optional[str]:
-    # Handle SSH Git URLs like git@github.com:owner/repo.git
-    if match := re.match(
-        r"git@[\w.-]+:(?P<full_name>[\w.-]+/[\w.-]+)(?:\.git)?/?$",
-        repository_url,
-    ):
-        full_name = match.group("full_name")
-        # Remove .git suffix if present
-        if full_name.endswith(".git"):
-            full_name = full_name[:-4]
-        return full_name
+    match = (
+        # Handle SSH Git URLs like git@github.com:owner/repo.git
+        re.match(
+            r"git@[\w.-]+:(?P<full_name>[\w.-]+/[\w.-]+)(?:\.git)?/?$",
+            repository_url,
+        )
+        # Handle HTTPS/HTTP URLs like https://github.com/owner/repo (with optional port)
+        or re.match(
+            r"(https?://[\w.-]+(?::\d+)?/)?(?P<full_name>[\w.-]+/[\w.-]+)/?$",
+            repository_url,
+        )
+    )
+    if match is None:
+        return None
 
-    # Handle HTTPS/HTTP URLs like https://github.com/owner/repo (with optional port)
-    if match := re.match(
-        r"(https?://[\w.-]+(?::\d+)?/)?(?P<full_name>[\w.-]+/[\w.-]+)/?$",
-        repository_url,
-    ):
-        return match.group("full_name")
+    full_name = match.group("full_name")
+    # Remove .git suffix if present. Stripped for every URL shape rather than
+    # only for SSH: `git clone` over HTTPS records the suffix too, and the name
+    # is what Mergify files the run under.
+    if full_name.endswith(".git"):
+        full_name = full_name[:-4]
 
-    return None
+    return full_name
 
 
 def get_repository_name_from_env_url(env: str) -> typing.Optional[str]:
