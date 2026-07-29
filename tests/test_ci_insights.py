@@ -7,10 +7,74 @@ import _pytest.pytester
 import _pytest.reports
 import pytest
 import responses
+from opentelemetry.sdk.trace import TracerProvider, export
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 import pytest_mergify
 from pytest_mergify import ci_insights
 from tests import conftest
+
+
+class _FailingSpanExporter(export.SpanExporter):
+    def export(self, spans: typing.Any) -> export.SpanExportResult:
+        return export.SpanExportResult.FAILURE
+
+
+def _record_one_span(processor: ci_insights.SynchronousBatchSpanProcessor) -> None:
+    provider = TracerProvider()
+    provider.add_span_processor(processor)
+    with provider.get_tracer("tests").start_as_current_span("a-span"):
+        pass
+
+
+def test_queued_spans_are_exported_on_shutdown() -> None:
+    # The SDK registers `shutdown` with atexit, so it is the only thing that
+    # runs when a session dies without reaching the terminal summary.
+    exporter = InMemorySpanExporter()
+    processor = ci_insights.SynchronousBatchSpanProcessor(exporter)
+
+    _record_one_span(processor)
+    assert exporter.get_finished_spans() == ()
+
+    processor.shutdown()
+
+    assert len(exporter.get_finished_spans()) == 1
+
+
+def test_flushing_reports_whether_the_export_worked() -> None:
+    processor = ci_insights.SynchronousBatchSpanProcessor(_FailingSpanExporter())
+    _record_one_span(processor)
+
+    assert processor.force_flush() is False
+
+
+def test_flushing_an_empty_queue_reports_success() -> None:
+    processor = ci_insights.SynchronousBatchSpanProcessor(InMemorySpanExporter())
+
+    assert processor.force_flush() is True
+
+
+def test_a_batch_the_exporter_rejects_is_attempted_once() -> None:
+    # `shutdown` flushes as well, and the SDK leaves its atexit hook armed until
+    # that returns, so a batch left in the queue is sent three times over and
+    # the last failure lands as an ignored exception at interpreter exit.
+    attempts = []
+
+    class _RaisingSpanExporter(export.SpanExporter):
+        def export(self, spans: typing.Any) -> export.SpanExportResult:
+            attempts.append(len(spans))
+            raise RuntimeError("the API rejected the batch")
+
+    processor = ci_insights.SynchronousBatchSpanProcessor(_RaisingSpanExporter())
+    _record_one_span(processor)
+
+    with pytest.raises(RuntimeError):
+        processor.force_flush()
+    processor.shutdown()
+
+    assert attempts == [1]
 
 
 def _set_test_environment(

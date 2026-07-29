@@ -158,16 +158,22 @@ class PytestMergify:
             )
         else:
             try:
-                self.mergify_ci.tracer_provider.force_flush()
+                exported = self.mergify_ci.tracer_provider.force_flush()
             except Exception as e:
                 terminalreporter.write_line(
                     f"Error while exporting traces: {e}",
                     red=True,
                 )
             else:
-                terminalreporter.write_line(
-                    f"MERGIFY_TEST_RUN_ID={self.mergify_ci.test_run_id}",
-                )
+                if exported:
+                    terminalreporter.write_line(
+                        f"MERGIFY_TEST_RUN_ID={self.mergify_ci.test_run_id}",
+                    )
+                else:
+                    terminalreporter.write_line(
+                        "Mergify's API did not accept the test results after retrying; they were not uploaded",
+                        red=True,
+                    )
 
             try:
                 self.mergify_ci.tracer_provider.shutdown()
