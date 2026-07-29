@@ -193,5 +193,7 @@ def git(*args: str) -> typing.Optional[str]:
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, OSError):
+        # OSError covers an image that ships no git at all. This runs during
+        # `pytest_configure` on every run, in or out of CI.
         return None
