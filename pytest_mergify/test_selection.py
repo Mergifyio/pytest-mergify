@@ -75,12 +75,30 @@ class TestSelection:
             # a subset with no `tests` is a real protocol break worth surfacing,
             # which a blanket `.get("tests", [])` would silently run past.
             tests = payload["tests"] if selection == "subset" else []
+            # The subset is not read again until `pytest_collection_modifyitems`,
+            # a hook that runs long after this -- the last point at which a
+            # problem with it can still be reported. Hence checked here rather
+            # than discovered there.
+            if not isinstance(tests, list) or not all(
+                isinstance(test, str) for test in tests
+            ):
+                # Truncated: the whole subset reaches five figures of characters
+                # on a large suite, and this ends up in a terminal warning.
+                raise TypeError(
+                    f"'tests' must be a list of node ids, got {tests!r:.200}"
+                )
         except (
             requests.HTTPError,
-            requests.exceptions.JSONDecodeError,
+            # `requests` only grew its own `JSONDecodeError` in 2.27, and this
+            # package accepts anything from 2 up. Naming it here would raise
+            # `AttributeError` out of the `except` itself on an older one, which
+            # is the crash this guard exists to prevent. The subclass is caught
+            # either way.
+            ValueError,
             KeyError,
-            # A payload that is valid JSON but not an object (list, string,
-            # number...) raises TypeError on subscript access.
+            # Raised above for a subset that is not a list of node ids, and by
+            # subscripting a payload that is valid JSON but not an object (list,
+            # string, number...).
             TypeError,
         ) as exc:
             self.init_error_msg = f"Error when querying Mergify's API, the full test suite will run. Error: {str(exc)}"

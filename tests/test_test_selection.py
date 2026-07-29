@@ -1,6 +1,7 @@
 import dataclasses
 import typing
 
+import pytest
 import responses
 
 from pytest_mergify import test_selection
@@ -38,6 +39,38 @@ class FakeHook:
 @dataclasses.dataclass
 class FakeConfig:
     hook: FakeHook = dataclasses.field(default_factory=FakeHook)
+
+
+@pytest.mark.parametrize(
+    argnames="tests",
+    argvalues=[
+        pytest.param(5, id="a-number"),
+        pytest.param("tests/a.py::test_one", id="a-bare-string"),
+        pytest.param({"tests/a.py::test_one": True}, id="an-object"),
+        pytest.param([{"nodeid": "tests/a.py::test_one"}], id="a-list-of-objects"),
+    ],
+)
+@responses.activate
+def test_a_malformed_tests_value_runs_the_full_suite(tests: typing.Any) -> None:
+    # This shape comes from the server, so getting it wrong reaches every
+    # opted-in repository at once rather than one misconfigured user.
+    responses.add(
+        responses.GET,
+        ENDPOINT,
+        json={"selection": "subset", "reason": "reduced_rerun", "tests": tests},
+    )
+
+    selection = _make_selection()
+
+    assert selection.selection == "full"
+    assert selection.init_error_msg is not None
+
+    # Applying the answer happens in a hook, past everything that could report a
+    # problem, so it has to survive whatever got stored.
+    items = [FakeItem("tests/a.py::test_one"), FakeItem("tests/b.py::test_two")]
+    selection.filter_items(FakeConfig(), items)  # type: ignore[arg-type]
+
+    assert len(items) == 2
 
 
 @responses.activate
