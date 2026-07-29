@@ -104,6 +104,7 @@ def test_xdist_aggregated_report() -> None:
         "test_new_a": {
             "rerun_count": 10,
             "total_duration_ms": 500.0,
+            "rerun_duration_ms": 450.0,
             "initial_setup_duration_ms": 5.0,
             "initial_call_duration_ms": 40.0,
             "initial_teardown_duration_ms": 5.0,
@@ -114,6 +115,7 @@ def test_xdist_aggregated_report() -> None:
         "test_new_b": {
             "rerun_count": 8,
             "total_duration_ms": 400.0,
+            "rerun_duration_ms": 345.0,
             "initial_setup_duration_ms": 5.0,
             "initial_call_duration_ms": 45.0,
             "initial_teardown_duration_ms": 5.0,
