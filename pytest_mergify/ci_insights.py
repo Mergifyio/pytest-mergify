@@ -31,15 +31,33 @@ class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
         self.queue: typing.List[ReadableSpan] = []
 
     def force_flush(self, timeout_millis: int = 30_000) -> bool:
-        self.span_exporter.export(self.queue)
-        self.queue.clear()
-        return True
+        if not self.queue:
+            return True
+
+        try:
+            exported = self.span_exporter.export(self.queue)
+        finally:
+            # Cleared even when the export raises, so a batch is attempted once.
+            # `shutdown` flushes too, and the SDK keeps its atexit hook armed
+            # until that returns, so a queue left behind is sent twice more and
+            # the last failure surfaces as an ignored exception at exit.
+            self.queue.clear()
+
+        return exported is export.SpanExportResult.SUCCESS
 
     def on_end(self, span: ReadableSpan) -> None:
         if not span.context.trace_flags.sampled:
             return
 
         self.queue.append(span)
+
+    def shutdown(self) -> None:
+        # The SDK registers this with atexit, so it is what runs for a session
+        # that ends without reaching the terminal summary -- a job timeout, an
+        # OOM kill, another plugin raising early. Inherited unchanged it closes
+        # the exporter and drops everything still queued, which is the whole run.
+        self.force_flush()
+        super().shutdown()
 
 
 class SessionHardRaiser(requests.Session):  # type: ignore[misc]
