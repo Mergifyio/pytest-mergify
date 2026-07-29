@@ -170,6 +170,8 @@ def test_skipped():
         "skipif(1 + 1, reason='with eval')",
         "skipif('1 + 1', reason='as str')",
         "skipif('sys.version_info.major > 1', reason='not needed')",
+        "skipif(condition=True, reason='as kwarg')",
+        "skipif(reason='unconditional')",
     ],
 )
 def test_mark_skipped(
@@ -206,6 +208,78 @@ def test_skipped():
         spans["test_mark_skipped.py::test_skipped"].parent.span_id
         == session_span.context.span_id
     )
+
+
+def test_mark_skipped_by_an_outer_mark(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    # The mark nearest the test does not decide the outcome on its own: pytest
+    # skips as soon as any skipif mark matches.
+    result, spans = pytester_with_spans("""
+import pytest
+pytestmark = pytest.mark.skipif(True, reason='whole module')
+
+@pytest.mark.skipif(False, reason='but not this one')
+def test_skipped():
+    assert False
+""")
+    result.assert_outcomes(skipped=1)
+    assert spans is not None
+    assert spans["test_mark_skipped_by_an_outer_mark.py::test_skipped"].attributes == {
+        "test.case.result.status": "skipped",
+        "test.scope": "case",
+        "code.function": "test_skipped",
+        "code.lineno": 3,
+        "code.filepath": "test_mark_skipped_by_an_outer_mark.py",
+        "code.namespace": "",
+        "code.file.path": anys.ANY_STR,
+        "code.line.number": 3,
+        "cicd.test.quarantined": False,
+    }
+
+
+def test_mark_skipped_by_a_later_condition(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    # `skipif` accepts several conditions and skips as soon as one of them
+    # holds, so reading only the first would report this test as executed.
+    result, spans = pytester_with_spans("""
+import pytest
+@pytest.mark.skipif(False, True, reason='the second one')
+def test_skipped():
+    assert False
+""")
+    result.assert_outcomes(skipped=1)
+    assert spans is not None
+    assert spans[
+        "test_mark_skipped_by_a_later_condition.py::test_skipped"
+    ].attributes == {
+        "test.case.result.status": "skipped",
+        "test.scope": "case",
+        "code.function": "test_skipped",
+        "code.lineno": 1,
+        "code.filepath": "test_mark_skipped_by_a_later_condition.py",
+        "code.namespace": "",
+        "code.file.path": anys.ANY_STR,
+        "code.line.number": 1,
+        "cicd.test.quarantined": False,
+    }
+
+
+def test_mark_skipped_with_an_unresolvable_condition(
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    # pytest turns a condition it cannot evaluate into one clean error on the
+    # test. Reading the same mark to build a span must not turn it into the end
+    # of the session.
+    result, _ = pytester_with_spans("""
+import pytest
+@pytest.mark.skipif('undefined_symbol_xyz', reason='broken')
+def test_broken():
+    pass
+""")
+    assert "INTERNALERROR" not in result.stdout.str()
+    result.assert_outcomes(errors=1)
 
 
 def test_mark_not_skipped(
