@@ -1,6 +1,8 @@
+import pathlib
+
 import pytest
 
-from pytest_mergify.utils import get_repository_name_from_url, is_in_ci
+from pytest_mergify.utils import get_repository_name_from_url, git, is_in_ci
 
 
 @pytest.mark.parametrize(
@@ -75,3 +77,13 @@ def test_is_in_ci_accepts_any_value(
     monkeypatch.delenv("PYTEST_MERGIFY_ENABLE", raising=False)
 
     assert is_in_ci() is expected
+
+
+def test_git_without_a_git_binary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    # Slim and distroless images ship no git at all.
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert git("config", "--get", "remote.origin.url") is None
