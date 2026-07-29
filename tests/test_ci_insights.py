@@ -296,7 +296,7 @@ def test_flaky_detection_for_new_tests(
 
     result.assert_outcomes(
         failed=1,  # Only the first execution of the flaky test.
-        passed=3004,  # The initial execution of the 4 tests and 1000 executions for each new test.
+        passed=3001,  # 2 tests run once + 2 new tests pass 1000x + flaky test passes 999x (first execution fails).
         skipped=1,  # The skipped test is tested only once because skipped tests are excluded from the flaky detection.
     )
 
@@ -334,7 +334,7 @@ def test_flaky_detection_for_new_tests(
         if span.name in new_tests:
             assert span.attributes.get("cicd.test.flaky_detection", False) is True
             assert span.attributes.get("cicd.test.new", False) is True
-            assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
+            assert span.attributes.get("cicd.test.rerun_count", 0) == 999
 
 
 @responses.activate
@@ -389,7 +389,7 @@ def test_flaky_detection_for_unhealthy_tests(
     outcomes = result.parseoutcomes()
     assert outcomes["passed"] == 4  # Initial run of each test.
     assert outcomes["skipped"] == 1
-    assert outcomes["rerun"] == 3000  # 1000 reruns for each unhealthy test.
+    assert outcomes["rerun"] == 2997  # 999 reruns for each unhealthy test.
 
     assert re.search(
         r"""🐛 Flaky detection
@@ -421,7 +421,7 @@ def test_flaky_detection_for_unhealthy_tests(
         if span.name in unhealthy_tests:
             assert not span.attributes.get("cicd.test.new")
             assert span.attributes.get("cicd.test.flaky_detection", False) is True
-            assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
+            assert span.attributes.get("cicd.test.rerun_count", 0) == 999
             # The status should reflect the initial run outcome, not "rerun"
             assert span.attributes.get("test.case.result.status") == "passed"
 
@@ -509,23 +509,23 @@ def test_flaky_detection_with_fixtures(
         def test_last():
             # This test validates that fixtures are properly set up and torn down
             # during test reruns. With 3 tests total (test_first, test_second, test_last)
-            # where test_second is new and gets reran 1000 times:
-            # - SETUP_COUNT should be 1003 (1 initial run per test + 1000 reruns of test_second)
-            # - TEARDOWN_COUNT should be 1002 (all tests complete except test_last which is currently running)
+            # where test_second is new and runs 1000 times in total:
+            # - SETUP_COUNT should be 1002 (1 initial run per test + 999 reruns of test_second)
+            # - TEARDOWN_COUNT should be 1001 (all tests complete except test_last which is currently running)
             # This ensures that function-scoped fixtures execute fresh for each rerun,
             # while session-scoped fixtures run only once (validated by SESSION_ALREADY_SET).
             global SETUP_COUNT, TEARDOWN_COUNT
-            assert SETUP_COUNT == 1003
-            assert TEARDOWN_COUNT == 1002  # Teardown hasn't run yet for test_last.
+            assert SETUP_COUNT == 1002
+            assert TEARDOWN_COUNT == 1001  # Teardown hasn't run yet for test_last.
         """
     )
 
     result.assert_outcomes(
-        passed=1003,  # The initial execution of the 3 tests and 1000 executions for the new test.
+        passed=1002,  # 1000 executions for the new test, plus 2 tests run once.
     )
 
     # We should only suspend and restore finalized for the tracked test.
-    assert len(suspended_calls) == 1000
+    assert len(suspended_calls) == 999
     assert all(
         call == "test_flaky_detection_with_fixtures.py::test_second"
         for call in suspended_calls
@@ -567,7 +567,7 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
             assert True
         """
     )
-    result.assert_outcomes(passed=1002)
+    result.assert_outcomes(passed=1001)
 
     assert spans is not None
     assert len(spans) == 1 + 2  # 1 for the session and one per test.
@@ -579,7 +579,56 @@ def test_flaky_detection_with_only_one_new_test_at_the_end(
     assert span.attributes is not None
     assert span.attributes.get("cicd.test.flaky_detection", False) is True
     assert span.attributes.get("cicd.test.new", False) is True
-    assert span.attributes.get("cicd.test.rerun_count", 0) == 1000
+    assert span.attributes.get("cicd.test.rerun_count", 0) == 999
+
+
+@responses.activate
+def test_flaky_detection_execution_count_matches_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    """Test that the executions, the span and the report agree on one cap.
+
+    `max_test_execution_count` counts the initial run, so a cap of N means N
+    executions, N - 1 of which are reruns. The three numbers are pinned
+    together here because they are derived separately and have disagreed."""
+    max_test_execution_count = 5
+
+    _set_test_environment(monkeypatch)
+    _make_quarantine_mock()
+    _make_flaky_detection_context_mock(
+        existing_test_names=[
+            "test_flaky_detection_execution_count_matches_the_cap.py::test_existing",
+        ],
+        max_test_execution_count=max_test_execution_count,
+        min_test_execution_count=1,
+    )
+
+    result, spans = pytester_with_spans(
+        code="""
+        def test_existing():
+            assert True
+
+        def test_new():
+            assert True
+        """
+    )
+
+    # `test_existing` runs once; `test_new` runs exactly up to the cap.
+    result.assert_outcomes(passed=1 + max_test_execution_count)
+
+    assert spans is not None
+    span = spans["test_flaky_detection_execution_count_matches_the_cap.py::test_new"]
+    assert span.attributes is not None
+    assert (
+        span.attributes.get("cicd.test.rerun_count")
+        == max_test_execution_count - 1  # The initial run is not a rerun.
+    )
+
+    assert (
+        f"'test_flaky_detection_execution_count_matches_the_cap.py::test_new' has been "
+        f"tested {max_test_execution_count} times" in result.stdout.str()
+    )
 
 
 @responses.activate
@@ -724,7 +773,7 @@ def test_flaky_detection_slow_test_not_reran(
     result = pytester.runpytest_inprocess(
         plugins=[CustomPlugin(), pytest_mergify.PytestMergify()]
     )
-    result.assert_outcomes(passed=1003)
+    result.assert_outcomes(passed=1002)
 
     # `test_fast` should have been tested successfully.
     assert re.search(
@@ -995,7 +1044,7 @@ def test_flaky_detector_prepare_for_session_in_new_mode(
     plugin = pytest_mergify.PytestMergify()
 
     result = pytester.runpytest_inprocess(plugins=[plugin])
-    result.assert_outcomes(passed=12)  # 2 tests and 10 reruns for the new test.
+    result.assert_outcomes(passed=11)  # test_foo once, plus 10 executions of test_bar.
 
     assert plugin.mergify_ci.flaky_detector is not None
 
@@ -1044,7 +1093,7 @@ def test_flaky_detector_prepare_for_session_in_unhealthy_mode(
 
     outcomes = pytester.runpytest_inprocess(plugins=[plugin]).parseoutcomes()
     assert outcomes["passed"] == 2
-    assert outcomes["rerun"] == 10
+    assert outcomes["rerun"] == 9
 
     assert plugin.mergify_ci.flaky_detector is not None
 
@@ -1116,8 +1165,8 @@ def test_flaky_detection_excludes_opted_out_tests(
     )
 
     result.assert_outcomes(
-        # test_watched: 1 initial + 1000 reruns; test_excluded: 1 (not rerun).
-        passed=1002,
+        # test_watched: 1000 executions; test_excluded: 1 (not rerun).
+        passed=1001,
     )
 
     # Only test_watched is rerun; test_excluded is absent from the report.
@@ -1137,7 +1186,7 @@ def test_flaky_detection_excludes_opted_out_tests(
     assert watched.attributes is not None
     assert watched.attributes.get("cicd.test.new") is True
     assert watched.attributes.get("cicd.test.flaky_detection") is True
-    assert watched.attributes.get("cicd.test.rerun_count") == 1000
+    assert watched.attributes.get("cicd.test.rerun_count") == 999
 
     excluded = spans["test_flaky_detection_excludes_opted_out_tests.py::test_excluded"]
     assert excluded.attributes is not None
