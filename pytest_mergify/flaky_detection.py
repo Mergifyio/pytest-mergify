@@ -79,6 +79,9 @@ class _TestMetrics:
     too_slow: bool = dataclasses.field(default=False)
     "Whether the test is too slow to be rerun, as decided at its first teardown."
 
+    is_last_rerun: bool = dataclasses.field(default=False)
+    "Whether the rerun in progress is the last one, so teardown restores finalizers."
+
     total_duration: datetime.timedelta = dataclasses.field(
         default_factory=datetime.timedelta
     )
@@ -341,7 +344,17 @@ class FlakyDetector:
             metrics := self._test_metrics.get(test)
         ) is not None and metrics.rerun_count >= 1
 
-    def is_last_rerun_for_test(self, test: str) -> bool:
+    def flag_last_rerun(self, test: str) -> None:
+        """Record whether the rerun about to start is the last one for this test."""
+        self._test_metrics[test].is_last_rerun = self._reached_rerun_limit(test)
+
+    def is_on_last_rerun(self, test: str) -> bool:
+        """Whether the rerun in progress was flagged as the last one."""
+        metrics = self._test_metrics.get(test)
+
+        return metrics is not None and metrics.is_last_rerun
+
+    def _reached_rerun_limit(self, test: str) -> bool:
         metrics = self._test_metrics[test]
 
         will_exceed_deadline = metrics.will_exceed_deadline()
