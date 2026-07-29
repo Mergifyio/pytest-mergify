@@ -60,12 +60,20 @@ class SynchronousBatchSpanProcessor(export.SimpleSpanProcessor):
         super().shutdown()
 
 
-class SessionHardRaiser(requests.Session):  # type: ignore[misc]
-    """Custom requests.Session that raises an exception on HTTP error."""
+class SessionRaisingOnPermanentError(requests.Session):  # type: ignore[misc]
+    """A requests.Session that raises on an error retrying cannot resolve."""
 
     def request(self, *args: typing.Any, **kwargs: typing.Any) -> requests.Response:
         response = super().request(*args, **kwargs)
-        response.raise_for_status()
+
+        # A client error reads the same however many times it is sent, so it is
+        # raised here, where the summary can name it. Anything the OTLP exporter
+        # treats as retryable -- 408 and 5xx, as of 1.30 -- is handed back
+        # untouched, because raising ahead of it lost a whole run's spans to a
+        # blip that one retry would have cleared.
+        if 400 <= response.status_code < 500 and response.status_code != 408:
+            response.raise_for_status()
+
         return response
 
 
@@ -145,7 +153,7 @@ class MergifyCIInsights:
             except utils.InvalidRepositoryFullNameError:
                 return
             self.exporter = OTLPSpanExporter(
-                session=SessionHardRaiser(),
+                session=SessionRaisingOnPermanentError(),
                 endpoint=f"{self.api_url}/v1/ci/{owner}/repositories/{repo}/traces",
                 headers={"Authorization": f"Bearer {self.token}"},
                 compression=Compression.Gzip,
