@@ -1,6 +1,8 @@
 version: 2
 updates:
-  - package-ecosystem: pip
+  # Only the uv ecosystem keeps uv.lock in sync with pyproject.toml; pip leaves
+  # it stale, which CI rejects because it resolves with UV_LOCKED=1.
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: daily
