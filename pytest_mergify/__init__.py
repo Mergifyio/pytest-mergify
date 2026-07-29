@@ -1,17 +1,16 @@
 import datetime
 import os
-import platform
-import sys
 import typing
-from collections.abc import Mapping
 
 import _pytest.config
 import _pytest.config.argparsing
 import _pytest.main
 import _pytest.nodes
+import _pytest.outcomes
 import _pytest.pathlib
 import _pytest.reports
 import _pytest.runner
+import _pytest.skipping
 import _pytest.terminal
 import opentelemetry.trace
 import pytest
@@ -556,45 +555,20 @@ def _call_outcomes(
 
 
 def _should_skip_item(item: _pytest.nodes.Item) -> bool:
-    if item.get_closest_marker("skip") is not None:
-        return True
+    """
+    Whether pytest will skip this item before it gets to run.
 
-    skipif_marker = item.get_closest_marker("skipif")
-    if skipif_marker is None:
+    Asked of pytest rather than worked out here, so that the answer cannot
+    drift from the rules pytest actually applies.
+    """
+    try:
+        return _pytest.skipping.evaluate_skip_marks(item) is not None
+    except (Exception, _pytest.outcomes.OutcomeException):
+        # Setup meets the same mark again and turns it into one clean error on
+        # the test, rather than the end of everyone's session. Outcomes descend
+        # from BaseException, so `Exception` alone would swallow one raised
+        # here -- outside the phase entitled to act on it.
         return False
-
-    condition = skipif_marker.args[0]
-    if not isinstance(condition, str):
-        return bool(condition)
-
-    # Mimics how pytest evaluate the conditions
-    # https://github.com/pytest-dev/pytest/blob/c5a75f2498c86850c4ce13bcf10d56efc92394a4/src/_pytest/skipping.py#L88
-    globals_ = {
-        "os": os,
-        "sys": sys,
-        "platform": platform,
-        "config": item.config,
-    }
-    if hasattr(item, "ihook"):
-        for dictionary in reversed(
-            item.ihook.pytest_markeval_namespace(config=item.config)
-        ):
-            if not isinstance(dictionary, Mapping):
-                raise ValueError(
-                    f"pytest_markeval_namespace() needs to return a dict, got {dictionary!r}"
-                )
-            globals_.update(dictionary)
-    if hasattr(item, "obj"):
-        globals_.update(item.obj.__globals__)
-
-    condition_code = compile(
-        source=condition,
-        filename=f"<{skipif_marker.name} condition>",
-        mode="eval",
-    )
-
-    # nosemgrep: python.lang.security.audit.eval-detected.eval-detected
-    return bool(eval(condition_code, globals_))
 
 
 def _write_flaky_detector_error(
