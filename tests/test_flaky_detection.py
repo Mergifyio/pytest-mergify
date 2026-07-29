@@ -224,6 +224,7 @@ def test_flaky_detector_to_serializable_metrics() -> None:
 
     assert result["test_metrics"]["test_foo"]["rerun_count"] == 3
     assert result["test_metrics"]["test_foo"]["total_duration_ms"] == 1050.0
+    assert result["test_metrics"]["test_foo"]["rerun_duration_ms"] == 700.0
     assert result["test_metrics"]["test_foo"]["initial_setup_duration_ms"] == 100.0
     assert result["test_metrics"]["test_foo"]["initial_call_duration_ms"] == 200.0
     assert result["test_metrics"]["test_foo"]["initial_teardown_duration_ms"] == 50.0
@@ -276,6 +277,7 @@ def test_make_report_from_aggregated() -> None:
             "test_bar": {
                 "rerun_count": 10,
                 "total_duration_ms": 1000.0,
+                "rerun_duration_ms": 900.0,
                 "initial_setup_duration_ms": 10.0,
                 "initial_call_duration_ms": 80.0,
                 "initial_teardown_duration_ms": 10.0,
@@ -346,3 +348,25 @@ def test_make_report_from_aggregated_no_tests() -> None:
     )
 
     assert "No new tests detected" in report
+
+
+def test_used_budget_counts_reruns_only() -> None:
+    """The initial execution runs with or without flaky detection, so charging it
+    to the budget would shrink every later test's share of it."""
+    detector = InitializedFlakyDetector()
+    detector._context = _make_flaky_detection_context()
+    detector._available_budget_duration = datetime.timedelta(seconds=10)
+    detector._test_metrics = {
+        "test_foo": flaky_detection._TestMetrics(
+            initial_setup_duration=datetime.timedelta(milliseconds=100),
+            initial_call_duration=datetime.timedelta(milliseconds=200),
+            initial_teardown_duration=datetime.timedelta(milliseconds=50),
+            # 350 ms of initial execution, so 700 ms of it is rerun time.
+            total_duration=datetime.timedelta(milliseconds=1050),
+        ),
+    }
+
+    assert detector._get_used_budget_duration() == datetime.timedelta(milliseconds=700)
+    assert detector._get_remaining_budget_duration() == datetime.timedelta(
+        milliseconds=9300
+    )
