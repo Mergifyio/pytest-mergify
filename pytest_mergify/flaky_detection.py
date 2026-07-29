@@ -691,7 +691,7 @@ def make_report_from_aggregated(
             f"Reference: https://github.com/pytest-dev/pytest-timeout?tab=readme-ov-file#avoiding-timeouts-in-fixtures"
         )
 
-    if os.environ.get("PYTEST_MERGIFY_DEBUG") and debug_logs:
+    if utils.is_env_true("PYTEST_MERGIFY_DEBUG") and debug_logs:
         result += f"{os.linesep}🔎 Debug Logs"
         for log in debug_logs:
             result += f"{os.linesep}{json.dumps(log)}"
