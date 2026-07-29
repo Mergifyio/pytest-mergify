@@ -137,10 +137,10 @@ class MergifyCIInsights:
 
         span_processor: SpanProcessor
 
-        if os.environ.get("PYTEST_MERGIFY_DEBUG"):
+        if utils.is_env_true("PYTEST_MERGIFY_DEBUG"):
             self.exporter = export.ConsoleSpanExporter()
             span_processor = SynchronousBatchSpanProcessor(self.exporter)
-        elif utils.strtobool(os.environ.get("_PYTEST_MERGIFY_TEST", "false")):
+        elif utils.is_env_true("_PYTEST_MERGIFY_TEST"):
             from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
                 InMemorySpanExporter,
             )

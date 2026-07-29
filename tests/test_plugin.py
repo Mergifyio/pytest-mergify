@@ -37,8 +37,7 @@ def test_enabled_with_a_provider_name_as_ci(
     pytester: Pytester,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Woodpecker and Drone set `CI` to their own name. Whatever the plugin makes
-    # of that, deciding it must not take the user's session down with it.
+    # Woodpecker and Drone set `CI` to their own name rather than to a boolean.
     monkeypatch.setenv("CI", "woodpecker")
     monkeypatch.delenv("MERGIFY_TOKEN", raising=False)
     pytester.makepyfile("def test_pass(): pass")
@@ -46,6 +45,29 @@ def test_enabled_with_a_provider_name_as_ci(
     result = pytester.runpytest_subprocess()
 
     result.assert_outcomes(passed=1)
+
+
+@pytest.mark.parametrize(
+    argnames="value",
+    argvalues=[
+        pytest.param("false", id="the-documented-default"),
+        pytest.param("0", id="zero"),
+        pytest.param("no", id="no"),
+        pytest.param("off", id="off"),
+        pytest.param("", id="empty"),
+        pytest.param("false ", id="trailing-space"),
+        pytest.param("treu", id="a-misspelt-true"),
+    ],
+)
+def test_debug_stays_off_for_a_falsy_value(
+    value: str,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    # Turning debug on stops results being uploaded, so only a value that
+    # genuinely reads as true may do it.
+    result, spans = pytester_with_spans(setenv={"PYTEST_MERGIFY_DEBUG": value})
+
+    assert spans is not None
 
 
 def test_empty_token(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
