@@ -1,4 +1,6 @@
+import dataclasses
 import datetime
+import gzip
 import http.server
 import os
 import re
@@ -6,6 +8,10 @@ import socketserver
 import threading
 import typing
 import uuid
+
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+)
 
 import _pytest.pytester
 import pytest
@@ -147,6 +153,142 @@ class TestHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         # Override to suppress console logging during tests.
         pass
+
+
+def _decode_any_value(value: typing.Any) -> typing.Any:
+    kind = value.WhichOneof("value")
+    if kind is None:
+        return None
+
+    if kind == "array_value":
+        return [_decode_any_value(item) for item in value.array_value.values]
+
+    return getattr(value, kind)
+
+
+def _decode_attributes(key_values: typing.Any) -> typing.Dict[str, typing.Any]:
+    return {kv.key: _decode_any_value(kv.value) for kv in key_values}
+
+
+@dataclasses.dataclass
+class UploadedSpan:
+    name: str
+    attributes: typing.Dict[str, typing.Any]
+
+
+@dataclasses.dataclass
+class UploadedBatch:
+    """
+    One resource's spans, as they arrived over the wire.
+
+    A request carries a batch per resource it saw, so counting these counts
+    resources rather than requests -- which for this plugin, holding one
+    provider for the whole session, comes to one per request.
+    """
+
+    resource_attributes: typing.Dict[str, typing.Any]
+    spans: typing.List[UploadedSpan]
+
+    def span(self, name: str) -> UploadedSpan:
+        """
+        The one span with this name.
+
+        A list rather than a dict keyed by name, because names repeat: a rerun
+        of a flaky test uploads the same node id again. Unpacking raises here
+        instead of letting the second copy overwrite the first unseen.
+        """
+        (span,) = [span for span in self.spans if span.name == name]
+        return span
+
+
+class _OTLPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+    def __init__(self, *args: typing.Any, **kwargs: typing.Any) -> None:
+        self.bodies: typing.List[bytes] = []
+        super().__init__(*args, **kwargs)
+
+
+class _OTLPRequestHandler(http.server.BaseHTTPRequestHandler):
+    server: _OTLPServer
+
+    def do_POST(self) -> None:
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self.headers.get("Content-Encoding") == "gzip":
+            body = gzip.decompress(body)
+        self.server.bodies.append(body)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-protobuf")
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        # Quarantine and test selection share this base URL. Answering 404 keeps
+        # them out of the way without pretending they were served.
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+@dataclasses.dataclass
+class OTLPCollector:
+    """
+    What the plugin actually put on the wire.
+
+    The in-memory exporter reaches into the plugin's own process, which cannot
+    see a batch that was never sent, a process other than this one, or a run
+    that ended without a terminal summary. This can.
+    """
+
+    url: str
+    _server: _OTLPServer
+
+    @property
+    def batches(self) -> typing.List[UploadedBatch]:
+        batches = []
+
+        for body in self._server.bodies:
+            request = ExportTraceServiceRequest()
+            request.ParseFromString(body)
+
+            for resource_spans in request.resource_spans:
+                spans = [
+                    UploadedSpan(
+                        name=span.name,
+                        attributes=_decode_attributes(span.attributes),
+                    )
+                    for scope_spans in resource_spans.scope_spans
+                    for span in scope_spans.spans
+                ]
+                batches.append(
+                    UploadedBatch(
+                        resource_attributes=_decode_attributes(
+                            resource_spans.resource.attributes
+                        ),
+                        spans=spans,
+                    )
+                )
+
+        return batches
+
+    @property
+    def span_names(self) -> typing.Set[str]:
+        return {span.name for batch in self.batches for span in batch.spans}
+
+
+@pytest.fixture
+def otlp_collector() -> typing.Generator[OTLPCollector, None, None]:
+    with _OTLPServer(("127.0.0.1", 0), _OTLPRequestHandler) as httpd:
+        host, port = httpd.server_address[0], httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever)
+        thread.daemon = True
+        thread.start()
+
+        yield OTLPCollector(url=f"http://{host!s}:{port}", _server=httpd)
+
+        httpd.shutdown()
 
 
 @pytest.fixture
