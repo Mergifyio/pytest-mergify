@@ -144,6 +144,47 @@ def test_span_jenkins(
 
 
 @mock.patch("pytest_mergify.utils.git", return_value=None)
+def test_span_circleci(
+    git: mock.Mock,
+    monkeypatch: pytest.MonkeyPatch,
+    pytester_with_spans: conftest.PytesterWithSpanT,
+) -> None:
+    # `CIRCLECI` was listed as a supported provider with no detector behind it,
+    # so a run uploaded a provider name and nothing else it needed.
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    monkeypatch.setenv("CIRCLECI", "true")
+    monkeypatch.setenv("CIRCLE_JOB", "unit-tests")
+    monkeypatch.setenv("CIRCLE_WORKFLOW_ID", "8f2a1c44-0b6e-4c7a-9d3f-1e5b7a9c2d40")
+    monkeypatch.setenv(
+        "CIRCLE_BUILD_URL", "https://circleci.com/gh/Mergifyio/pytest-mergify/42"
+    )
+    monkeypatch.setenv("CIRCLE_BRANCH", "main")
+    monkeypatch.setenv("CIRCLE_SHA1", "1860cf377dd5610e256ff52e47cf38816cc04549")
+    monkeypatch.setenv(
+        "CIRCLE_REPOSITORY_URL", "https://github.com/Mergifyio/pytest-mergify"
+    )
+
+    result, spans = pytester_with_spans()
+
+    assert spans is not None
+    for span in spans.values():
+        assert span.resource.attributes["cicd.provider.name"] == "circleci"
+        assert span.resource.attributes["vcs.repository.name"] == (
+            "Mergifyio/pytest-mergify"
+        )
+        assert span.resource.attributes["vcs.ref.head.name"] == "main"
+        assert span.resource.attributes["vcs.ref.head.revision"] == (
+            "1860cf377dd5610e256ff52e47cf38816cc04549"
+        )
+        assert span.resource.attributes["cicd.pipeline.run.id"] == (
+            "8f2a1c44-0b6e-4c7a-9d3f-1e5b7a9c2d40"
+        )
+        # CircleCI publishes no workflow name, so the job name serves as both.
+        assert span.resource.attributes["cicd.pipeline.name"] == "unit-tests"
+        assert span.resource.attributes["cicd.pipeline.task.name"] == "unit-tests"
+
+
+@mock.patch("pytest_mergify.utils.git", return_value=None)
 def test_span_git(
     git: mock.Mock,
     monkeypatch: pytest.MonkeyPatch,
