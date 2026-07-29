@@ -1,0 +1,130 @@
+# Deterministic low-risk detection, ported from the monorepo without its
+# heuristic scoring and LLM passes. Auto-labels "low risk" for provably
+# safe changes, which lets them merge on a single approval.
+name: PR Risk Assessment
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  risk-score:
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    # Fork and Dependabot pull requests get a read-only token on a public
+    # repository, so labeling and commenting would fail. Forks keep the usual
+    # two approvals; Dependabot is already exempt from the approval rule.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+      && !startsWith(github.head_ref, 'mergify/merge-queue/')
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The scorer decides whether a pull request skips a reviewer, so a broken
+      # scorer must fail the job rather than mislabel.
+      - name: Test the scorer
+        run: python3 -m unittest discover -s .github/scripts -p "test_*.py"
+
+      - name: Compute risk metrics
+        id: risk
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 .github/scripts/compute-pr-risk.py
+
+      - name: Post risk assessment and manage label
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          AUTO_LABEL: ${{ steps.risk.outputs.auto_label }}
+        with:
+          script: |
+            const fs = require('fs');
+            const commentPath = process.env.RUNNER_TEMP + '/risk-comment.md';
+
+            if (!fs.existsSync(commentPath)) {
+              console.log('No risk comment file, skipping');
+              return;
+            }
+
+            const body = fs.readFileSync(commentPath, 'utf8');
+            const marker = '<!-- pr-risk-assessment -->';
+            const autoMarker = '<!-- auto-labeled: low-risk -->';
+            const labelName = 'low risk';
+            const prNumber = context.payload.pull_request.number;
+            const autoLabel = process.env.AUTO_LABEL === 'true';
+
+            // Paginated: past 100 comments an unpaginated read would miss
+            // the marker and post a duplicate instead of updating in place.
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100,
+              }
+            );
+            const existing = comments.find(
+              c => c.body && c.body.includes(marker)
+            );
+            const wasAutoLabeled = existing?.body?.includes(autoMarker);
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+
+            const { data: labels } =
+              await github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+              });
+            const hasLabel = labels.some(l => l.name === labelName);
+
+            if (autoLabel && !hasLabel) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: [labelName],
+              });
+              console.log('Auto-labeled: low risk');
+            } else if (!autoLabel && hasLabel && wasAutoLabeled) {
+              // Only strip what this workflow applied, so a reviewer's manual
+              // label survives a later push.
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  name: labelName,
+                });
+                console.log('Removed auto-label: risk increased');
+              } catch (e) {
+                console.log('Could not remove label:', e.message);
+              }
+            }
