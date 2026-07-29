@@ -6,6 +6,7 @@ import _pytest.nodes
 import _pytest.pytester
 import _pytest.reports
 import pytest
+import requests
 import responses
 from opentelemetry.sdk.trace import TracerProvider, export
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -75,6 +76,43 @@ def test_a_batch_the_exporter_rejects_is_attempted_once() -> None:
     processor.shutdown()
 
     assert attempts == [1]
+
+
+@pytest.mark.parametrize(
+    argnames="status",
+    argvalues=[
+        pytest.param(408, id="request-timeout"),
+        pytest.param(500, id="internal-server-error"),
+        pytest.param(502, id="bad-gateway"),
+        pytest.param(503, id="service-unavailable"),
+    ],
+)
+@responses.activate
+def test_a_transient_error_is_left_to_the_exporter(status: int) -> None:
+    responses.add(responses.POST, "https://example.com/traces", status=status)
+
+    response = ci_insights.SessionRaisingOnPermanentError().post(
+        "https://example.com/traces"
+    )
+
+    assert response.status_code == status
+
+
+@pytest.mark.parametrize(
+    argnames="status",
+    argvalues=[
+        pytest.param(400, id="bad-request"),
+        pytest.param(401, id="unauthorized"),
+        pytest.param(403, id="forbidden"),
+        pytest.param(404, id="not-found"),
+    ],
+)
+@responses.activate
+def test_a_permanent_error_is_surfaced_immediately(status: int) -> None:
+    responses.add(responses.POST, "https://example.com/traces", status=status)
+
+    with pytest.raises(requests.HTTPError):
+        ci_insights.SessionRaisingOnPermanentError().post("https://example.com/traces")
 
 
 def _set_test_environment(
