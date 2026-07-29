@@ -23,7 +23,14 @@ pull_request_rules:
           - check-success = test (3.13)
           - check-success = test (3.14)
           - check-success = codespell
-      - "#approved-reviews-by < 2"
+      - not:
+          or: &ApprovalConditions
+            - "#approved-reviews-by >= 2"
+            # A change the risk scoring workflow proved safe, or that a
+            # reviewer labeled as such, ships on a single approval.
+            - and:
+                - label = low risk
+                - "#approved-reviews-by >= 1"
       - "#changes-requested-reviews-by=0"
       - review-requested != @devs
     actions:
@@ -36,7 +43,7 @@ merge_protections:
     if:
       - author != dependabot[bot]
     success_conditions:
-      - "#approved-reviews-by >= 2"
+      - or: *ApprovalConditions
 
   - name: Continuous Integration
     if: []

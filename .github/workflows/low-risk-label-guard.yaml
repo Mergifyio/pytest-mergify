@@ -1,0 +1,41 @@
+# The "low risk" label halves the required approvals, so an author must not
+# be able to grant it to their own pull request.
+name: Low Risk Label Guard
+
+permissions:
+  pull-requests: write
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  guard:
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    if: >-
+      github.event.label.name == 'low risk'
+      && github.event.sender.login == github.event.pull_request.user.login
+    steps:
+      - name: Remove label if added by the pull request author
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: 'low risk'
+            });
+            const body = [
+              '⚠️ The `low risk` label was removed',
+              'because it was added by the pull request author.',
+              'This label must be added by a reviewer',
+              'or by the automated risk scoring workflow.',
+            ].join(' ');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
