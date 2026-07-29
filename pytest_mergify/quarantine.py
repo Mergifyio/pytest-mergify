@@ -70,13 +70,31 @@ class Quarantine:
                 self.init_error_msg = f"Error when querying Mergify's API, tests won't be quarantined. Error: {str(exc)}"
                 return
 
-            quarantined_tests.extend(
-                qtest["test_name"]
-                for qtest in quarantine_resp.json()["quarantined_tests"]
-            )
+            try:
+                quarantined_tests.extend(
+                    qtest["test_name"]
+                    for qtest in quarantine_resp.json()["quarantined_tests"]
+                )
+            except (
+                # `requests` only grew its own `JSONDecodeError` in 2.27, and
+                # this package accepts anything from 2 up. Naming it here would
+                # raise `AttributeError` out of the `except` itself on an older
+                # one, which is the crash this guard exists to prevent. The
+                # subclass is caught either way.
+                ValueError,
+                KeyError,
+                # A payload that is valid JSON but not an object (list, string,
+                # number...) raises TypeError on subscript access.
+                TypeError,
+            ) as exc:
+                self.init_error_msg = f"Unexpected response from Mergify's API, tests won't be quarantined. Error: {str(exc)}"
+                return
 
+            # Left unguarded: `requests` parses the `Link` header leniently and
+            # gives every entry it returns a `url`, whatever the header said.
             next_link = quarantine_resp.links.get("next")
             url = next_link["url"] if next_link else None
+
             params = None
 
         self.quarantined_tests = quarantined_tests

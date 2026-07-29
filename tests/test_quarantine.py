@@ -1,3 +1,5 @@
+import typing
+
 import pytest
 import responses
 import requests
@@ -116,6 +118,49 @@ def test_quarantine_resets_on_mid_pagination_error() -> None:
     assert q.init_error_msg is not None
     assert "Error when querying Mergify's API" in q.init_error_msg
     # No partial population: a failure on page 2 must not leak page 1's data.
+    assert q.quarantined_tests == []
+
+
+@pytest.mark.parametrize(
+    argnames="response_kwargs",
+    argvalues=[
+        pytest.param(
+            {"body": "<html>502 Bad Gateway</html>", "content_type": "text/html"},
+            id="an-error-page-served-as-200",
+        ),
+        pytest.param({"json": {"items": []}}, id="a-renamed-collection"),
+        pytest.param(
+            {"json": {"quarantined_tests": [{"name": "test_a"}]}},
+            id="a-renamed-entry-field",
+        ),
+        pytest.param({"json": []}, id="a-payload-that-is-not-an-object"),
+    ],
+)
+@responses.activate
+def test_quarantine_handles_a_malformed_payload(
+    response_kwargs: typing.Dict[str, typing.Any],
+) -> None:
+    # A proxy, WAF or CDN can answer 200 with its own error page, and the API's
+    # schema can move under us. Neither is the user's problem to debug from a
+    # session that refused to start.
+    responses.add(
+        responses.GET,
+        "https://example.com/v1/ci/owner/repositories/repo/quarantines",
+        status=200,
+        **response_kwargs,
+    )
+
+    q = Quarantine(
+        api_url="https://example.com",
+        token="tok",
+        repo_name="owner/repo",
+        branch_name="main",
+    )
+
+    assert q.init_error_msg is not None
+    # Names the payload path: the transport and status handlers beside it end
+    # their messages the same way, so a weaker match passes on either of them.
+    assert "Unexpected response" in q.init_error_msg
     assert q.quarantined_tests == []
 
 
