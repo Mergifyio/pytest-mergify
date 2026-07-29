@@ -20,16 +20,32 @@ def test_no_ci(pytester_with_spans: conftest.PytesterWithSpanT) -> None:
     assert all("Mergify" not in line for line in result.stdout.lines)
 
 
-@pytest.mark.parametrize("env", ("PYTEST_MERGIFY_ENABLED", "CI"))
+@pytest.mark.parametrize("env", ("PYTEST_MERGIFY_ENABLE", "CI"))
 def test_enabled(
     env: str,
     pytester_with_spans: conftest.PytesterWithSpanT,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("CI", raising=False)
-    result, spans = pytester_with_spans(setenv={env: "true"})
+    # `CI` is cleared through `setenv` rather than `monkeypatch`, because the
+    # fixture sets it back afterwards -- clearing it earlier leaves both
+    # parameters exercising the same variable.
+    result, spans = pytester_with_spans(setenv={"CI": None, env: "true"})
     assert spans is not None
     assert any("Mergify CI" in line for line in result.stdout.lines)
+
+
+def test_enabled_with_a_provider_name_as_ci(
+    pytester: Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Woodpecker and Drone set `CI` to their own name. Whatever the plugin makes
+    # of that, deciding it must not take the user's session down with it.
+    monkeypatch.setenv("CI", "woodpecker")
+    monkeypatch.delenv("MERGIFY_TOKEN", raising=False)
+    pytester.makepyfile("def test_pass(): pass")
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
 
 
 def test_empty_token(pytester_with_spans: conftest.PytesterWithSpanT) -> None:

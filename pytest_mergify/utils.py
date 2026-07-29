@@ -43,22 +43,42 @@ class StructuredLog:
         )
 
 
+def is_env_true(env: str) -> bool:
+    """
+    Whether the user turned on a flag this plugin documents as a boolean.
+
+    Anything unrecognised is off, so that a misspelt `true` cannot enable a
+    feature the user never asked for.
+    """
+    try:
+        return strtobool(os.environ.get(env, "").strip())
+    except ValueError:
+        return False
+
+
+def is_env_enabled(env: str) -> bool:
+    """
+    Whether an environment variable marks a provider as the one in use.
+
+    Providers set these to a boolean, to their own name, or to a URL, so
+    anything non-empty that is not a boolean counts as on.
+    """
+    value = os.environ.get(env, "").strip()
+
+    try:
+        return strtobool(value)
+    except ValueError:
+        return bool(value)
+
+
 def is_in_ci() -> bool:
-    return strtobool(os.environ.get("CI", "false")) or strtobool(
-        os.environ.get("PYTEST_MERGIFY_ENABLE", "false")
-    )
+    return is_env_enabled("CI") or is_env_true("PYTEST_MERGIFY_ENABLE")
 
 
 def get_ci_provider() -> typing.Optional[CIProviderT]:
     for envvar, name in SUPPORTED_CIs.items():
-        if envvar in os.environ:
-            try:
-                enabled = strtobool(os.environ[envvar])
-            except ValueError:
-                # Not a boolean, just check it's not empty
-                enabled = bool(os.environ[envvar].strip())
-            if enabled:
-                return name
+        if is_env_enabled(envvar):
+            return name
 
     return None
 
@@ -175,14 +195,3 @@ def git(*args: str) -> typing.Optional[str]:
         ).strip()
     except subprocess.CalledProcessError:
         return None
-
-
-def is_env_truthy(key: str) -> bool:
-    return os.getenv(key, default="").lower() in {
-        "y",
-        "yes",
-        "t",
-        "true",
-        "on",
-        "1",
-    }
