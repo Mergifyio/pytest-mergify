@@ -25,6 +25,15 @@ from pytest_mergify.utils import get_repository_name_from_url, git, is_in_ci
             "my-org.name/my-repo.name",
         ),
         ("git@bitbucket.org:owner123/repo456.git", "owner123/repo456"),
+        # `git clone` over HTTPS records the remote with its `.git` suffix, so
+        # this is what most checkouts actually report.
+        ("https://github.com/owner/repo.git", "owner/repo"),
+        ("http://github.com/owner/repo.git", "owner/repo"),
+        ("https://github.com/owner/repo.git/", "owner/repo"),
+        ("https://git.example.com:8080/owner/repo.git", "owner/repo"),
+        ("owner/repo.git", "owner/repo"),
+        # Only the suffix goes: a name that merely ends in those letters stays.
+        ("https://github.com/owner/repo.github", "owner/repo.github"),
     ],
 )
 def test_get_repository_name_from_url_valid(url: str, expected: str) -> None:
