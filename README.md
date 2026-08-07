@@ -1,8 +1,15 @@
 # pytest-mergify
 
-Pytest plugin for [Mergify Test Insights](https://docs.mergify.com/ci-insights/).
+A test fails. You rerun the job and it passes. Nothing changed in between.
 
-More information at https://mergify.com
+pytest-mergify is the pytest plugin for
+[Mergify Test Insights](https://docs.mergify.com/test-insights/). It catches
+those tests while they are still on a pull request, stops the ones you already
+know about from blocking a merge, and reruns only what actually failed.
+
+**Requires a [Mergify](https://mergify.com) account**, since the plugin reports
+to and reads from Mergify's API. It is
+[free for open source projects](https://mergify.com/pricing).
 
 ## Features
 
@@ -39,7 +46,7 @@ The plugin activates automatically when running in CI (detected via the `CI` env
 | `MERGIFY_TEST_JOB_NAME` | Mergify test job name | — |
 | `MERGIFY_TEST_SELECTION_DISABLE` | Opt out of test selection (see below) | `false` |
 
-For detailed documentation, see the [official guide](https://docs.mergify.com/ci-insights/test-frameworks/pytest/).
+For detailed documentation, see the [official guide](https://docs.mergify.com/test-insights/test-frameworks/pytest/).
 
 ### Test selection
 
