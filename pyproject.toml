@@ -1,10 +1,40 @@
 [project]
 name = "pytest-mergify"
 dynamic = ["version"]
-description = "Pytest plugin for Mergify"
+description = "pytest plugin for Mergify Test Insights: flaky test detection, quarantine and test selection"
 authors = [{ name = "Julien Danjou", email = "jd@mergify.com" }]
 license = "GPL-3.0-only"
 readme = "README.md"
+keywords = [
+    "pytest",
+    "testing",
+    "flaky",
+    "flaky-tests",
+    "quarantine",
+    "test-selection",
+    "ci",
+    "continuous-integration",
+    "opentelemetry",
+    "mergify",
+]
+# No `License ::` classifier: PEP 639 forbids pairing one with the SPDX
+# `license` expression above, and build backends now reject the combination.
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
 
 requires-python = ">=3.8"
 dependencies = [
@@ -14,6 +44,13 @@ dependencies = [
     "pytest>=6.0.0",
     "pytest-timeout>=2.4.0",
 ]
+
+[project.urls]
+Homepage = "https://mergify.com"
+Documentation = "https://docs.mergify.com/test-insights/test-frameworks/pytest/"
+Source = "https://github.com/Mergifyio/pytest-mergify"
+Issues = "https://github.com/Mergifyio/pytest-mergify/issues"
+Changelog = "https://github.com/Mergifyio/pytest-mergify/releases"
 
 [dependency-groups]
 dev = [
