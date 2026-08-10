@@ -1,5 +1,14 @@
 # pytest-mergify
 
+> **This repository is no longer the development home of `pytest-mergify`.**
+> Development continues in [Mergifyio/mergify-ci-integrations](https://github.com/Mergifyio/mergify-ci-integrations),
+> under [`clients/pytest-mergify/`](https://github.com/Mergifyio/mergify-ci-integrations/tree/main/clients/pytest-mergify).
+> Please open issues and pull requests there.
+>
+> **The package itself is unaffected.** `pytest-mergify` is still maintained and
+> still published to PyPI — just from the monorepo now. `pip install pytest-mergify`
+> keeps working, and the installation instructions below are unchanged.
+
 Pytest plugin for [Mergify Test Insights](https://docs.mergify.com/ci-insights/).
 
 More information at https://mergify.com
@@ -61,6 +70,10 @@ to this feature only — test tracing, flaky detection and quarantine keep
 working (unset `MERGIFY_TOKEN` to turn the plugin off entirely).
 
 ## Development
+
+Development happens in [`clients/pytest-mergify/`](https://github.com/Mergifyio/mergify-ci-integrations/tree/main/clients/pytest-mergify)
+of the [mergify-ci-integrations](https://github.com/Mergifyio/mergify-ci-integrations)
+monorepo; the instructions below are kept for reference only.
 
 ### Prerequisites
 
