@@ -292,6 +292,33 @@ def otlp_collector() -> typing.Generator[OTLPCollector, None, None]:
 
 
 @pytest.fixture
+def uploading_collector(
+    # Requested so that the API url below is set after the autouse fixture that
+    # points it elsewhere, rather than merely alongside it.
+    set_api_url: None,
+    monkeypatch: pytest.MonkeyPatch,
+    otlp_collector: OTLPCollector,
+) -> OTLPCollector:
+    """
+    A collector the plugin will genuinely upload to.
+
+    The uploading exporter is only built for a CI run carrying a token and a
+    repository the plugin can name, so anything short of the whole set leaves
+    the collector correct and empty -- which reads as a passing assertion.
+    """
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "Mergifyio/pytest-mergify")
+    monkeypatch.setenv("MERGIFY_TOKEN", "token")
+    monkeypatch.setenv("MERGIFY_API_URL", otlp_collector.url)
+    # Both of these swap the exporter for one that uploads nothing.
+    monkeypatch.delenv("_PYTEST_MERGIFY_TEST", raising=False)
+    monkeypatch.delenv("PYTEST_MERGIFY_DEBUG", raising=False)
+
+    return otlp_collector
+
+
+@pytest.fixture
 def http_server(request: pytest.FixtureRequest) -> typing.Generator[str, None, None]:
     # Allow parameterization of the response code via request.param.
     response_code = getattr(request, "param", 200)
